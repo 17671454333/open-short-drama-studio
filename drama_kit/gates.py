@@ -14,6 +14,7 @@ Core deterministic engines for Open Short-Drama & WebGame Studio:
 """
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Dict, List
 
 
@@ -203,4 +204,118 @@ def inspect_webgame_bundle(index_html: str) -> WebGameHealthReport:
             "relative_paths_only": not has_root_abs,
             "self_contained_vendor": not has_cdn,
         },
+    )
+
+
+_SYNTHETIC_SINE_COMMAND_PATTERN = re.compile(
+    r"(?i)(?:"
+    r"sine=frequency=\d+|"
+    r"-f\s+lavfi\s+-i\s+sine|"
+    r"math\.sin\s*\(|"
+    r"np\.sin\s*\("
+    r")"
+)
+
+# Canonical studio stereo master background music presets
+STUDIO_BGM_LIBRARY_PRESETS: List[str] = [
+    "ancient_suspense",
+    "epic_climax",
+    "action_battle",
+    "modern_urban",
+    "tech_showcase",
+]
+
+
+@dataclass
+class AudioGateReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    recommended_ffmpeg_filter: str = ""
+    studio_bgm_presets: List[str] = field(default_factory=lambda: list(STUDIO_BGM_LIBRARY_PRESETS))
+
+
+def inspect_audio_track_quality(
+    audio_info: Dict[str, Any],
+    max_sine_ratio: float = 0.42,
+    require_stereo: bool = True,
+    require_bgm: bool = True,
+) -> AudioGateReport:
+    """
+    Deterministic audio quality & studio BGM gate for AI Short-Drama & Video publishing:
+    - Rejects synthetic pure sine/square waves that produce transformer-like buzzing (e.g. 73Hz, 110Hz, 146Hz, 220Hz, 432Hz).
+    - Verifies audio presence (has_audio: True).
+    - Enforces stereo channel layout (channels >= 2).
+    - Enforces authentic studio stereo BGM master track.
+    - If speech is present, enforces hardware-grade voice denoise (highpass=f=85,afftdn=nf=-25) and sidechain ducking.
+    """
+    violations: List[str] = []
+    has_audio = bool(audio_info.get("has_audio", True))
+    if not has_audio:
+        violations.append("NO_AUDIO_TRACK: Video media has no detected audio stream.")
+
+    channels = int(audio_info.get("channels", 2))
+    if require_stereo and channels < 2:
+        violations.append(f"MONO_AUDIO_TRACK: Detected {channels} channel(s); studio release requires stereo (>= 2).")
+
+    top5_sine_ratio = float(audio_info.get("top5_sine_ratio", 0.0))
+    sine_detected = bool(audio_info.get("sine_generator_detected", False))
+    pipeline_spec = str(audio_info.get("pipeline_cmd", "") or audio_info.get("synthesis_spec", ""))
+    if pipeline_spec and _SYNTHETIC_SINE_COMMAND_PATTERN.search(pipeline_spec):
+        sine_detected = True
+
+    sine_freq = audio_info.get("sine_freq_hz")
+    if sine_freq and int(sine_freq) in (73, 110, 146, 220, 432):
+        sine_detected = True
+
+    if top5_sine_ratio > max_sine_ratio or sine_detected:
+        violations.append(
+            f"SYNTHETIC_SINE_BUZZ_DETECTED: Monotonic sine/square wave ratio ({top5_sine_ratio:.2f}) "
+            f"exceeds safety threshold ({max_sine_ratio:.2f}) or synthetic sine command detected. "
+            f"Replace with authentic studio stereo BGM."
+        )
+
+    bgm_track = str(audio_info.get("bgm_track", "") or "").strip()
+    if require_bgm and not bgm_track:
+        violations.append(
+            "MISSING_STUDIO_BGM: Video lacks studio stereo background music. "
+            f"Recommended library presets: {', '.join(STUDIO_BGM_LIBRARY_PRESETS)}."
+        )
+
+    has_speech = bool(audio_info.get("has_speech", True))
+    speech_denoised = bool(audio_info.get("speech_denoised", True))
+    sidechain_ducking = bool(audio_info.get("sidechain_ducking", True))
+
+    if has_speech and not speech_denoised:
+        violations.append("VOCAL_DENOISE_REQUIRED: Dialogue voice requires highpass=f=85,afftdn=nf=-25 denoise.")
+
+    if has_speech and require_bgm and not sidechain_ducking:
+        violations.append("SIDECHAIN_DUCKING_REQUIRED: BGM must enable sidechain ducking to prevent masking dialogue.")
+
+    score = max(0, 100 - len(violations) * 20)
+
+    recommended_filter = (
+        "[0:a]highpass=f=85,afftdn=nf=-25[voice];"
+        "[1:a]asplit=2[bgm_main][bgm_side];"
+        "[voice][bgm_side]sidechaincompress=threshold=0.125:ratio=4:attack=20:release=250[ducked_bgm];"
+        "[voice][ducked_bgm]amix=inputs=2:weights=1.0 0.42[aout]"
+    )
+
+    return AudioGateReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "has_audio": has_audio,
+            "channels": channels,
+            "top5_sine_ratio": top5_sine_ratio,
+            "sine_detected": sine_detected,
+            "bgm_track": bgm_track,
+            "has_speech": has_speech,
+            "speech_denoised": speech_denoised,
+            "sidechain_ducking": sidechain_ducking,
+        },
+        recommended_ffmpeg_filter=recommended_filter,
+        studio_bgm_presets=list(STUDIO_BGM_LIBRARY_PRESETS),
     )

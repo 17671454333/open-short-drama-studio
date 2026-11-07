@@ -7,15 +7,15 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](pyproject.toml)
 
-**Deterministic Quality Gates, 85%-Credit-Saving Video Budget Optimizer, CapCut/JianYing Timeline Manifest Generator & HTML5 WebGame Pre-Flight Doctor for AI Creators.**
+**Deterministic Quality Gates, 85%-Credit-Saving Video Budget Optimizer, CapCut/JianYing Timeline Manifest Generator, HTML5 WebGame Pre-Flight Doctor & Studio BGM Audio Quality Gate for AI Creators.**
 
 ---
 
 ## ✨ Why `open-short-drama-studio`?
 
-Most AI video & short-drama scripts fail before generation even starts: weak cold-open hooks, bloated 60-character dialogue lines that ruin TTS pacing, burning 100% of credits on 1080p Pro models for static talking heads, and manual timeline dragging in CapCut/JianYing.
+Most AI video & short-drama scripts fail before generation even starts: weak cold-open hooks, bloated 60-character dialogue lines that ruin TTS pacing, burning 100% of credits on 1080p Pro models for static talking heads, annoying synthetic sine-wave buzzer artifacts, and manual timeline dragging in CapCut/JianYing.
 
-`open-short-drama-studio` provides **100% deterministic, zero-dependency Python engines** to validate scripts, slash video generation costs by **80%+**, and generate microsecond-aligned CapCut track manifests.
+`open-short-drama-studio` provides **100% deterministic, zero-dependency Python engines** to validate scripts, slash video generation costs by **80%+**, enforce studio audio standards, and generate microsecond-aligned CapCut track manifests.
 
 ### Core Modules (`drama_kit`)
 
@@ -30,6 +30,10 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
    - Converts storyboard shots and speaker lines into microsecond-aligned (`1,000,000 us = 1s`) 9:16 vertical video & subtitle tracks ready for draft injection.
 4. **🎮 HTML5 WebGame Portal Doctor (`inspect_webgame_bundle`)**:
    - Static pre-flight checker for AI-generated HTML5/Three.js games targeting **Bilibili Toy, Itch.io, CrazyGames, and WeChat Mini-Games** (blocks root-absolute `/assets/...` 404 traps, external CDN leaks, and missing mobile viewport tags).
+5. **🎵 Studio Stereo Audio & Anti-Buzzer BGM Quality Gate (`inspect_audio_track_quality`)**:
+   - Rejects synthetic pure sine/square-wave buzzer noise (73Hz, 110Hz, 146Hz, 220Hz, 432Hz) with monotonic ratios $> 0.42$.
+   - Enforces stereo channel layouts and studio background music master tracks (`ancient_suspense`, `epic_climax`, `action_battle`, `modern_urban`, `tech_showcase`).
+   - Generates production-grade vocal denoise (`highpass=f=85,afftdn=nf=-25`) and sidechain ducking filter chain to keep dialogues crystal clear over BGM.
 
 ---
 
@@ -53,9 +57,10 @@ python -m unittest discover -s tests -v
 | **Deterministic Script & Hook Quality Gates** | ✅ Included | ✅ Included + Multi-Episode Arc Matrix |
 | **3-Tier Credit Optimizer & FFmpeg Grain Formula** | ✅ Included | ✅ + Automated Batch FFmpeg Render Pipeline |
 | **CapCut / JianYing Timeline Manifest** | ✅ JSON Manifest | 🚀 **Direct `D:\CapCut Drafts` One-Click Writer (`pyJianYingDraft`)** |
+| **Studio Audio Denoise & Anti-Buzzer BGM Gate** | ✅ Included (`inspect_audio_track_quality`) | 🚀 **Automated Sidechain Ducking & Mastering Engine** |
 | **Cross-Shot Character Face-Locking** | — | 🚀 **6-View Anchor Reference Sheet & Consistency Engine** |
 | **Story Studio E-Commerce Viral Corpus** | — | 🚀 **370+ Proven High-Conversion Hooks & Word-Level Audio Alignment** |
 | **WebGame 6-Target Omni-Packager** | ✅ Pre-Flight Doctor | 🚀 **Web `.zip` + Windows `.exe` + Android `.apk` + WeChat Mini-Game + 60-Page Copyright PDF** |
 | **8-Platform Zero-Login Matrix Auto-Publisher** | — | 🚀 **One-Click Live Chrome Publishing (YouTube, TikTok, Bilibili, Xiaohongshu, Douyin, WeChat Channels, Kuaishou, EAZO)** |
 
-> 💡 **Unlock Studio Pro / Sponsor Maintenance**: Support via **GitHub Sponsors** or check [`17671454333/jev-cognitive-mcp`](https://github.com/17671454333/jev-cognitive-mcp) for our MCP agent safety & live Chrome CDP takeover infrastructure.
+> 🔗 **Companion Cognitive Infrastructure**: Check out our coding agent 3+1 cognitive security and Chrome M144+ zero-popup live CDP MCP server 👉 **[`17671454333/jev-cognitive-mcp`](https://github.com/17671454333/jev-cognitive-mcp)**

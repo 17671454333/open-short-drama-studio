@@ -6,6 +6,7 @@ from .gates import (
     calculate_storyboard_budget,
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
+    inspect_audio_track_quality,
 )
 
 
@@ -13,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Open Short-Drama & WebGame Studio CLI (Lite)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("demo", help="Run end-to-end deterministic short-drama & budget optimization demo")
+    sub.add_parser("demo", help="Run end-to-end deterministic short-drama, audio gate & budget optimization demo")
 
     args = parser.parse_args()
     if args.cmd == "demo":
@@ -37,6 +38,17 @@ def main() -> None:
         ]
         budget = calculate_storyboard_budget(shots)
         timeline = export_capcut_timeline_manifest(shots)
+        sample_audio = {
+            "has_audio": True,
+            "channels": 2,
+            "top5_sine_ratio": 0.08,
+            "bgm_track": "ancient_suspense.wav",
+            "has_speech": True,
+            "speech_denoised": True,
+            "sidechain_ducking": True,
+        }
+        audio_report = inspect_audio_track_quality(sample_audio)
+
         print(
             json.dumps(
                 {
@@ -46,6 +58,12 @@ def main() -> None:
                         "duration_sec": timeline["duration_sec"],
                         "video_clips": len(timeline["tracks"]["video"]),
                         "subtitles": len(timeline["tracks"]["subtitles"]),
+                    },
+                    "audio_gate": {
+                        "passed": audio_report.passed,
+                        "score": audio_report.score,
+                        "violations": audio_report.violations,
+                        "metrics": audio_report.metrics,
                     },
                 },
                 ensure_ascii=False,

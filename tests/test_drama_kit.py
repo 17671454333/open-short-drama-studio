@@ -4,6 +4,8 @@ from drama_kit import (
     calculate_storyboard_budget,
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
+    inspect_audio_track_quality,
+    STUDIO_BGM_LIBRARY_PRESETS,
 )
 
 
@@ -72,6 +74,64 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         good_html = '<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><script src="./vendor/three.min.js"></script><img src="./assets/hero.png"></body></html>'
         rep_ok = inspect_webgame_bundle(good_html)
         self.assertTrue(rep_ok.ready)
+
+    def test_inspect_audio_track_quality_passes_clean_stereo_with_bgm(self):
+        audio_spec = {
+            "has_audio": True,
+            "channels": 2,
+            "top5_sine_ratio": 0.05,
+            "bgm_track": "ancient_suspense.wav",
+            "has_speech": True,
+            "speech_denoised": True,
+            "sidechain_ducking": True,
+        }
+        rep = inspect_audio_track_quality(audio_spec)
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertIn("highpass=f=85", rep.recommended_ffmpeg_filter)
+        self.assertIn("sidechaincompress", rep.recommended_ffmpeg_filter)
+        self.assertIn("ancient_suspense", rep.studio_bgm_presets)
+
+    def test_inspect_audio_track_quality_catches_synthetic_sine_buzzer(self):
+        # Test ratio threshold breach
+        bad_spec_ratio = {
+            "has_audio": True,
+            "channels": 2,
+            "top5_sine_ratio": 0.58,
+            "bgm_track": "epic_climax.wav",
+        }
+        rep1 = inspect_audio_track_quality(bad_spec_ratio)
+        self.assertFalse(rep1.passed)
+        self.assertTrue(any("SYNTHETIC_SINE_BUZZ_DETECTED" in v for v in rep1.violations))
+
+        # Test command signature detection (e.g. sine=frequency=...)
+        bad_spec_cmd = {
+            "has_audio": True,
+            "channels": 2,
+            "pipeline_cmd": "ffmpeg -f lavfi -i sine=frequency=110:duration=60 -c:a aac out.aac",
+            "bgm_track": "epic_climax.wav",
+        }
+        rep2 = inspect_audio_track_quality(bad_spec_cmd)
+        self.assertFalse(rep2.passed)
+        self.assertTrue(any("SYNTHETIC_SINE_BUZZ_DETECTED" in v for v in rep2.violations))
+
+    def test_inspect_audio_track_quality_catches_mono_and_missing_bgm(self):
+        bad_spec = {
+            "has_audio": True,
+            "channels": 1,
+            "top5_sine_ratio": 0.02,
+            "bgm_track": "",
+            "has_speech": True,
+            "speech_denoised": False,
+            "sidechain_ducking": False,
+        }
+        rep = inspect_audio_track_quality(bad_spec)
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("MONO_AUDIO_TRACK" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_STUDIO_BGM" in v for v in rep.violations))
+        self.assertTrue(any("VOCAL_DENOISE_REQUIRED" in v for v in rep.violations))
+        self.assertTrue(any("SIDECHAIN_DUCKING_REQUIRED" in v for v in rep.violations))
 
 
 if __name__ == "__main__":
