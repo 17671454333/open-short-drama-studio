@@ -8,13 +8,16 @@ from .gates import (
     inspect_webgame_bundle,
     inspect_audio_track_quality,
 )
+from .storyboard_prompt import (
+    standardize_shot_prompt,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Open Short-Drama & WebGame Studio CLI (Lite)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("demo", help="Run end-to-end deterministic short-drama, audio gate & budget optimization demo")
+    sub.add_parser("demo", help="Run end-to-end deterministic short-drama, prompt standardizer, audio gate & budget optimization demo")
 
     args = parser.parse_args()
     if args.cmd == "demo":
@@ -49,6 +52,15 @@ def main() -> None:
         }
         audio_report = inspect_audio_track_quality(sample_audio)
 
+        sample_shot_spec = {
+            "shot_type": "Low-angle dramatic slow dolly in",
+            "subject_anchor": "Young swordsman Lin wearing battle-torn obsidian armor with silver phoenix embroidery",
+            "action_beat": "gripping ancient rune sword with right hand, eyes burning with determined wrath",
+            "environment_lighting": "ruined cliff fortress under stormy dusk sky, lightning illuminating flying ash and rain",
+            "cinematic_style": "shot on 35mm anamorphic lens, shallow depth of field, photorealistic 8k, moody teal and gold color grade",
+        }
+        prompt_report = standardize_shot_prompt(sample_shot_spec, model_target="minimax_h3")
+
         print(
             json.dumps(
                 {
@@ -64,6 +76,14 @@ def main() -> None:
                         "score": audio_report.score,
                         "violations": audio_report.violations,
                         "metrics": audio_report.metrics,
+                    },
+                    "storyboard_prompt_standardizer": {
+                        "passed": prompt_report.passed,
+                        "score": prompt_report.score,
+                        "violations": prompt_report.violations,
+                        "model_target": prompt_report.model_target,
+                        "prompt_en": prompt_report.prompt_en,
+                        "prompt_zh": prompt_report.prompt_zh,
                     },
                 },
                 ensure_ascii=False,

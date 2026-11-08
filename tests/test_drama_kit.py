@@ -5,7 +5,9 @@ from drama_kit import (
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
     inspect_audio_track_quality,
+    standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
+    DEFAULT_NEGATIVE_PROMPT,
 )
 
 
@@ -132,6 +134,43 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("MISSING_STUDIO_BGM" in v for v in rep.violations))
         self.assertTrue(any("VOCAL_DENOISE_REQUIRED" in v for v in rep.violations))
         self.assertTrue(any("SIDECHAIN_DUCKING_REQUIRED" in v for v in rep.violations))
+
+    def test_standardize_shot_prompt_passes_full_six_segments(self):
+        spec = {
+            "shot_type": "Close-up, fast tracking zoom",
+            "subject_anchor": "Swordsman Lin in black cloak with scarred cheek",
+            "action_beat": "eyes widening with fierce resolution",
+            "environment_lighting": "rain-slick stone steps lit by flickering torchlight",
+            "cinematic_style": "shot on 50mm prime, filmic grain, cold cyan grade",
+            "negative_exclusions": "lowres, cartoon, distorted limbs",
+        }
+        rep = standardize_shot_prompt(spec, model_target="minimax_h3")
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertIn("Swordsman Lin", rep.prompt_en)
+        self.assertIn("natural fluid movement", rep.prompt_en)
+        self.assertIn("【主体锚点】", rep.prompt_zh)
+        self.assertEqual(rep.negative_prompt, "lowres, cartoon, distorted limbs")
+
+    def test_standardize_shot_prompt_catches_missing_segments_and_deducts_score(self):
+        spec = {
+            "shot_type": "",
+            "subject_anchor": "",
+        }
+        rep = standardize_shot_prompt(spec, model_target="generic")
+        self.assertFalse(rep.passed)
+        self.assertLess(rep.score, 80)
+        self.assertTrue(any("MISSING_SHOT_TYPE" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_SUBJECT_ANCHOR" in v for v in rep.violations))
+
+    def test_standardize_shot_prompt_handles_raw_string_and_model_presets(self):
+        raw_text = "Lin facing the demon beast in thunderstorm"
+        rep_mj = standardize_shot_prompt(raw_text, model_target="midjourney")
+        self.assertFalse(rep_mj.passed)
+        self.assertIn("RAW_STRING_INPUT", rep_mj.violations[0])
+        self.assertIn("--ar 16:9", rep_mj.prompt_en)
+        self.assertEqual(rep_mj.negative_prompt, DEFAULT_NEGATIVE_PROMPT)
 
 
 if __name__ == "__main__":
