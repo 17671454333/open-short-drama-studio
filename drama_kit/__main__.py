@@ -7,6 +7,7 @@ from .gates import (
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
     inspect_audio_track_quality,
+    inspect_caption_safe_zone,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -61,6 +62,16 @@ def main() -> None:
         }
         prompt_report = standardize_shot_prompt(sample_shot_spec, model_target="minimax_h3")
 
+        sample_captions = [
+            {"text": "三十年河东，今日这把剑归我了！", "y_ratio": 0.75, "x_right_ratio": 0.65},
+            {"text": "你竟敢毁掉护宗大阵？", "y_ratio": 0.75, "x_right_ratio": 0.55},
+        ]
+        safe_zone_report = inspect_caption_safe_zone(
+            sample_captions,
+            platform="weixin_channels",
+            title="【星途漫剧】第一集：剑破苍穹惊变",
+        )
+
         print(
             json.dumps(
                 {
@@ -84,6 +95,13 @@ def main() -> None:
                         "model_target": prompt_report.model_target,
                         "prompt_en": prompt_report.prompt_en,
                         "prompt_zh": prompt_report.prompt_zh,
+                    },
+                    "caption_safe_zone_gate": {
+                        "passed": safe_zone_report.passed,
+                        "score": safe_zone_report.score,
+                        "violations": safe_zone_report.violations,
+                        "platform": safe_zone_report.platform,
+                        "metrics": safe_zone_report.metrics,
                     },
                 },
                 ensure_ascii=False,

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-short-drama-studio"
-version = "0.4.0"
-description = "Deterministic AI Short-Drama Quality Gates, Six-Segment Storyboard Prompt Standardizer, Seedance/Flow Credit Optimizer, CapCut Draft Timeline Generator, HTML5 WebGame Pre-Flight Doctor & Studio BGM Audio Gate."
+version = "0.5.0"
+description = "Deterministic AI Short-Drama Quality Gates, Six-Segment Storyboard Prompt Standardizer, Seedance/Flow Credit Optimizer, CapCut Draft Timeline Generator, HTML5 WebGame Pre-Flight Doctor & Studio BGM Audio Gate & Mobile Caption Safe-Zone Inspector."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

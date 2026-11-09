@@ -37,6 +37,9 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
    - Rejects synthetic pure sine/square-wave buzzer noise (73Hz, 110Hz, 146Hz, 220Hz, 432Hz) with monotonic ratios $> 0.42$.
    - Enforces stereo channel layouts and studio background music master tracks (`ancient_suspense`, `epic_climax`, `action_battle`, `modern_urban`, `tech_showcase`).
    - Generates production-grade vocal denoise (`highpass=f=85,afftdn=nf=-25`) and sidechain ducking filter chain to keep dialogues crystal clear over BGM.
+7. **📱 Mobile 9:16 Caption & Title Safe-Zone Inspector (`inspect_caption_safe_zone`)**:
+   - Enforces platform UI obstacle avoidance for vertical video across **Douyin, Kuaishou, WeChat Channels, Xiaohongshu, and TikTok** (top status bar `0..12%`, bottom title/progress scrubber `78%~80%..100%`, and right action buttons `82%..100%`).
+   - Validates WeChat Channels 16-character single-line title constraint and subtitle line density ($\le 18$ characters) with automated title truncation and caption-splitting repair suggestions.
 
 ---
 
@@ -62,6 +65,7 @@ python -m unittest discover -s tests -v
 | **3-Tier Credit Optimizer & FFmpeg Grain Formula** | ✅ Included | ✅ + Automated Batch FFmpeg Render Pipeline |
 | **CapCut / JianYing Timeline Manifest** | ✅ JSON Manifest | 🚀 **Direct `D:\CapCut Drafts` One-Click Writer (`pyJianYingDraft`)** |
 | **Studio Audio Denoise & Anti-Buzzer BGM Gate** | ✅ Included (`inspect_audio_track_quality`) | 🚀 **Automated Sidechain Ducking & Mastering Engine** |
+| **Mobile 9:16 Safe-Zone & Title Gate** | ✅ Included (`inspect_caption_safe_zone`) | 🚀 **Automated Dynamic UI Overlay & Crop Preview Engine** |
 | **Cross-Shot Facial Consistency Anchoring** | — | 🚀 **Frontal Anchor + 6-View Multi-Angle Generation Pipeline** |
 | **HTML5 WebGame Pre-Flight Doctor** | ✅ Included (`inspect_webgame_bundle`) | 🚀 **6-Platform Build Automation (HTML5, EXE, APK, WeChat, Toy)** |
 | **8-Platform Zero-Popup Matrix Publisher** | — | 🚀 **One-Click Multi-Platform Publishing (Chrome M144+ Live CDP)** |

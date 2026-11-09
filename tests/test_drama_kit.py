@@ -5,9 +5,11 @@ from drama_kit import (
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
     inspect_audio_track_quality,
+    inspect_caption_safe_zone,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
+    PLATFORM_SAFE_MARGINS,
 )
 
 
@@ -172,6 +174,60 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertIn("--ar 16:9", rep_mj.prompt_en)
         self.assertEqual(rep_mj.negative_prompt, DEFAULT_NEGATIVE_PROMPT)
 
+
+
+    def test_inspect_caption_safe_zone_passes_clean_captions_and_title(self):
+        captions = [
+            {"text": "三十年河东，今日这把剑归我了！", "y_ratio": 0.75, "x_right_ratio": 0.65},
+            {"text": "你竟敢毁掉护宗大阵？", "y_ratio": 0.75, "x_right_ratio": 0.55},
+        ]
+        rep = inspect_caption_safe_zone(
+            captions,
+            platform="weixin_channels",
+            title="【星途漫剧】第一集：剑破苍穹惊变",
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["total_captions"], 2)
+        self.assertEqual(rep.metrics["overflow_count"], 0)
+
+    def test_inspect_caption_safe_zone_detects_overflows_and_generates_fixes(self):
+        captions = [
+            # Too long line (> 18 chars)
+            {"text": "这句短剧对白故意写得极其漫长远远超过了单行十八个汉字的移动端显示极限", "y_ratio": 0.75, "x_right_ratio": 0.70},
+            # Top overflow (status bar collision)
+            {"text": "顶部状态栏警告字样", "y_ratio": 0.05, "x_right_ratio": 0.60},
+            # Bottom overflow (progress scrubber collision)
+            {"text": "底部进度条遮挡字样", "y_ratio": 0.92, "x_right_ratio": 0.60},
+            # Right overflow (action buttons collision)
+            {"text": "右侧点赞栏撞击", "y_ratio": 0.75, "x_right_ratio": 0.95},
+        ]
+        rep = inspect_caption_safe_zone(
+            captions,
+            platform="weixin_channels",
+            title="【星途漫剧超长大标题】第三百二十四章：云端之巅神魔大战谁与争锋",
+        )
+        self.assertFalse(rep.passed)
+        self.assertLessEqual(rep.score, 20)
+        self.assertTrue(any("WEIXIN_TITLE_TOO_LONG" in v for v in rep.violations))
+        self.assertTrue(any("CAPTION_LINE_TOO_LONG" in v for v in rep.violations))
+        self.assertTrue(any("TOP_OVERFLOW" in v for v in rep.violations))
+        self.assertTrue(any("BOTTOM_OVERFLOW" in v for v in rep.violations))
+        self.assertTrue(any("RIGHT_OVERFLOW" in v for v in rep.violations))
+
+        # Check fix suggestions
+        fix_types = [f["type"] for f in rep.suggested_fixes]
+        self.assertIn("truncate_title", fix_types)
+        self.assertIn("split_caption", fix_types)
+        self.assertIn("adjust_y", fix_types)
+
+    def test_inspect_caption_safe_zone_platform_specific_margins(self):
+        rep_dy = inspect_caption_safe_zone([], platform="douyin")
+        self.assertEqual(rep_dy.metrics["safe_margins"]["bottom"], 0.80)
+
+        rep_ks = inspect_caption_safe_zone([], platform="kuaishou")
+        self.assertEqual(rep_ks.metrics["safe_margins"]["bottom"], 0.82)
 
 if __name__ == "__main__":
     unittest.main()

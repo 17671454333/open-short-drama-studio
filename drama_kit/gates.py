@@ -319,3 +319,129 @@ def inspect_audio_track_quality(
         recommended_ffmpeg_filter=recommended_filter,
         studio_bgm_presets=list(STUDIO_BGM_LIBRARY_PRESETS),
     )
+
+
+@dataclass
+class CaptionSafeZoneReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    platform: str = "all"
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    suggested_fixes: List[Dict[str, Any]] = field(default_factory=list)
+
+
+PLATFORM_SAFE_MARGINS = {
+    "all": {"top": 0.12, "bottom": 0.80, "left": 0.08, "right": 0.82},
+    "douyin": {"top": 0.10, "bottom": 0.80, "left": 0.06, "right": 0.82},
+    "kuaishou": {"top": 0.10, "bottom": 0.82, "left": 0.06, "right": 0.84},
+    "weixin_channels": {"top": 0.12, "bottom": 0.78, "left": 0.06, "right": 0.82},
+    "xiaohongshu": {"top": 0.12, "bottom": 0.78, "left": 0.08, "right": 0.82},
+    "tiktok": {"top": 0.12, "bottom": 0.78, "left": 0.06, "right": 0.80},
+}
+
+
+def inspect_caption_safe_zone(
+    captions: List[Dict[str, Any]],
+    *,
+    platform: str = "all",
+    title: str = "",
+    max_line_chars: int = 18,
+) -> CaptionSafeZoneReport:
+    """
+    Deterministic mobile 9:16 vertical video & short-drama safe-zone quality gate:
+    1. Checks vertical/horizontal bounds against platform UI obstructions:
+       - Top header status bar & return button (0..12%)
+       - Right interaction column (avatar, like count, comment, share buttons: 82%..100%)
+       - Bottom author handle, caption title, shopping links & progress scrubber (78%~80%..100%)
+    2. Validates WeChat Channels single-line title constraint (<= 16 Chinese chars).
+    3. Validates caption subtitle line density (<= 18 chars recommended for 9:16 screens).
+    """
+    violations: List[str] = []
+    suggested_fixes: List[Dict[str, Any]] = []
+
+    margins = PLATFORM_SAFE_MARGINS.get(platform, PLATFORM_SAFE_MARGINS["all"])
+
+    clean_title = (title or "").strip()
+    title_len = len(clean_title)
+    if clean_title and platform in ("weixin_channels", "all"):
+        if title_len > 16:
+            violations.append(
+                f"WEIXIN_TITLE_TOO_LONG: Title length ({title_len}) exceeds WeChat Channels 16-character single-line limit: '{clean_title}'."
+            )
+            suggested_fixes.append({
+                "type": "truncate_title",
+                "original": clean_title,
+                "suggestion": clean_title[:16].rstrip("，。！？ "),
+            })
+
+    overflow_count = 0
+    max_chars = 0
+
+    for idx, cap in enumerate(captions):
+        text = str(cap.get("text") or "").strip()
+        length = len(text)
+        if length > max_chars:
+            max_chars = length
+
+        if length > max_line_chars:
+            violations.append(
+                f"CAPTION_LINE_TOO_LONG: Caption #{idx+1} '{text}' has {length} chars (exceeds {max_line_chars}-char mobile limit)."
+            )
+            mid = length // 2
+            suggested_fixes.append({
+                "type": "split_caption",
+                "caption_index": idx,
+                "original": text,
+                "suggestion": [text[:mid].strip(), text[mid:].strip()],
+            })
+
+        # default Y ratio is 0.75 (standard lower-third dialogue subtitle position)
+        y_ratio = float(cap.get("y_ratio", 0.75))
+        if y_ratio < margins["top"]:
+            violations.append(
+                f"TOP_OVERFLOW: Caption #{idx+1} at Y={y_ratio:.2f} collides with top status bar (min {margins['top']:.2f})."
+            )
+            overflow_count += 1
+            suggested_fixes.append({
+                "type": "adjust_y",
+                "caption_index": idx,
+                "current_y": y_ratio,
+                "recommended_y": 0.75,
+            })
+        elif y_ratio > margins["bottom"]:
+            violations.append(
+                f"BOTTOM_OVERFLOW: Caption #{idx+1} at Y={y_ratio:.2f} collides with bottom title/progress bar (max {margins['bottom']:.2f})."
+            )
+            overflow_count += 1
+            suggested_fixes.append({
+                "type": "adjust_y",
+                "caption_index": idx,
+                "current_y": y_ratio,
+                "recommended_y": 0.75,
+            })
+
+        x_right_ratio = float(cap.get("x_right_ratio", 0.70))
+        if x_right_ratio > margins["right"]:
+            violations.append(
+                f"RIGHT_OVERFLOW: Caption #{idx+1} extends to X_right={x_right_ratio:.2f}, colliding with right interaction icons (max {margins['right']:.2f})."
+            )
+            overflow_count += 1
+
+    score = max(0, 100 - len(violations) * 20)
+
+    return CaptionSafeZoneReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        platform=platform,
+        metrics={
+            "total_captions": len(captions),
+            "overflow_count": overflow_count,
+            "max_char_count": max_chars,
+            "title_length": title_len,
+            "recommended_dialogue_y": 0.75,
+            "safe_margins": margins,
+        },
+        suggested_fixes=suggested_fixes,
+    )
