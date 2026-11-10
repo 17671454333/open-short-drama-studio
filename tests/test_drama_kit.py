@@ -6,6 +6,7 @@ from drama_kit import (
     inspect_webgame_bundle,
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
+    inspect_social_cover_card,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -228,6 +229,65 @@ class TestOpenShortDramaStudio(unittest.TestCase):
 
         rep_ks = inspect_caption_safe_zone([], platform="kuaishou")
         self.assertEqual(rep_ks.metrics["safe_margins"]["bottom"], 0.82)
+
+    def test_inspect_social_cover_card_passes_valid_cover(self):
+        cover = {
+            "width": 1080,
+            "height": 1440,
+            "title": "剑破苍穹：逆天崛起",
+            "title_y_ratio": 0.28,
+            "has_ai_disclaimer": True,
+        }
+        rep = inspect_social_cover_card(cover, platform="xiaohongshu", ratio_type="3:4")
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["ratio"], 0.75)
+
+    def test_inspect_social_cover_card_detects_violations_and_fixes(self):
+        cover = {
+            "width": 400,
+            "height": 400,
+            "title": "这是一段非常冗长甚至超过了十四个汉字的短剧主标题",
+            "title_y_ratio": 0.05,
+            "has_ai_disclaimer": False,
+        }
+        rep = inspect_social_cover_card(cover, platform="xiaohongshu", ratio_type="3:4")
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("RESOLUTION_TOO_LOW" in v for v in rep.violations))
+        self.assertTrue(any("ASPECT_RATIO_MISMATCH" in v for v in rep.violations))
+        self.assertTrue(any("TITLE_TOO_LONG" in v for v in rep.violations))
+        self.assertTrue(any("TITLE_COLLIDES_HEADER" in v for v in rep.violations))
+        self.assertTrue(any("AI_DISCLAIMER_MISSING" in v for v in rep.violations))
+
+        fix_types = [f["type"] for f in rep.suggested_fixes]
+        self.assertIn("upscale_recommendation", fix_types)
+        self.assertIn("resize_aspect_ratio", fix_types)
+        self.assertIn("truncate_headline", fix_types)
+        self.assertIn("adjust_title_y", fix_types)
+        self.assertIn("add_ai_disclaimer", fix_types)
+
+    def test_inspect_social_cover_card_presets_and_platforms(self):
+        rep_bili = inspect_social_cover_card(
+            {"width": 1920, "height": 1080, "has_ai_disclaimer": True},
+            platform="bilibili",
+        )
+        self.assertTrue(rep_bili.passed)
+        self.assertEqual(rep_bili.metrics["target_preset"], "16:9")
+
+        rep_toy = inspect_social_cover_card(
+            {"width": 1024, "height": 1024, "has_ai_disclaimer": True},
+            platform="bilibili_toy",
+        )
+        self.assertTrue(rep_toy.passed)
+        self.assertEqual(rep_toy.metrics["target_preset"], "1:1")
+
+        rep_vert = inspect_social_cover_card(
+            {"width": 1080, "height": 1920, "has_ai_disclaimer": True},
+            platform="weixin_channels",
+        )
+        self.assertTrue(rep_vert.passed)
+        self.assertEqual(rep_vert.metrics["target_preset"], "9:16")
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ from .gates import (
     inspect_webgame_bundle,
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
+    inspect_social_cover_card,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -72,6 +73,19 @@ def main() -> None:
             title="【星途漫剧】第一集：剑破苍穹惊变",
         )
 
+        sample_cover = {
+            "width": 1080,
+            "height": 1440,
+            "title": "剑破苍穹：逆天崛起",
+            "title_y_ratio": 0.28,
+            "has_ai_disclaimer": True,
+        }
+        cover_report = inspect_social_cover_card(
+            sample_cover,
+            platform="xiaohongshu",
+            ratio_type="3:4",
+        )
+
         print(
             json.dumps(
                 {
@@ -102,6 +116,13 @@ def main() -> None:
                         "violations": safe_zone_report.violations,
                         "platform": safe_zone_report.platform,
                         "metrics": safe_zone_report.metrics,
+                    },
+                    "social_cover_gate": {
+                        "passed": cover_report.passed,
+                        "score": cover_report.score,
+                        "violations": cover_report.violations,
+                        "platform": cover_report.platform,
+                        "metrics": cover_report.metrics,
                     },
                 },
                 ensure_ascii=False,

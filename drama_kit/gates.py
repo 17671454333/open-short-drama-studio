@@ -15,7 +15,7 @@ Core deterministic engines for Open Short-Drama & WebGame Studio:
 
 from dataclasses import dataclass, field
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -445,3 +445,138 @@ def inspect_caption_safe_zone(
         },
         suggested_fixes=suggested_fixes,
     )
+
+
+@dataclass
+class SocialCoverReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    platform: str = "all"
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    suggested_fixes: List[Dict[str, Any]] = field(default_factory=list)
+
+
+COVER_RATIO_PRESETS: Dict[str, Dict[str, Any]] = {
+    "3:4": {"min_ratio": 0.72, "max_ratio": 0.78, "target_w": 1080, "target_h": 1440, "platforms": ["xiaohongshu", "douyin_image"]},
+    "9:16": {"min_ratio": 0.54, "max_ratio": 0.59, "target_w": 1080, "target_h": 1920, "platforms": ["weixin_channels", "douyin", "kuaishou", "tiktok", "youtube_shorts"]},
+    "16:9": {"min_ratio": 1.70, "max_ratio": 1.85, "target_w": 1920, "target_h": 1080, "platforms": ["bilibili", "youtube"]},
+    "1:1": {"min_ratio": 0.98, "max_ratio": 1.02, "target_w": 1024, "target_h": 1024, "platforms": ["bilibili_toy", "app_icon"]},
+}
+
+
+def inspect_social_cover_card(
+    cover: Dict[str, Any],
+    *,
+    platform: str = "all",
+    ratio_type: Optional[str] = None,
+    require_ai_disclaimer: bool = True,
+) -> SocialCoverReport:
+    """
+    Deterministic social media cover card & promo poster quality gate:
+    1. Aspect ratio & resolution verification against standard platform slots (3:4, 9:16, 16:9, 1:1).
+    2. Headline title length (<= 14 Chinese chars recommended for single-glance impact) and visual safe-zone (Y: 0.12..0.80).
+    3. Mandatory AI-generated disclosure & disclaimer tag check for platform compliance.
+    """
+    violations: List[str] = []
+    suggested_fixes: List[Dict[str, Any]] = []
+
+    width = int(cover.get("width") or 0)
+    height = int(cover.get("height") or 0)
+
+    # Resolve expected ratio preset
+    target_preset = ratio_type
+    if not target_preset:
+        if platform in ("xiaohongshu", "douyin_image"):
+            target_preset = "3:4"
+        elif platform in ("weixin_channels", "douyin", "kuaishou", "tiktok", "youtube_shorts"):
+            target_preset = "9:16"
+        elif platform in ("bilibili", "youtube"):
+            target_preset = "16:9"
+        elif platform in ("bilibili_toy", "app_icon"):
+            target_preset = "1:1"
+        else:
+            target_preset = "3:4"
+
+    preset_meta = COVER_RATIO_PRESETS.get(target_preset, COVER_RATIO_PRESETS["3:4"])
+
+    # Resolution check
+    if width < 512 or height < 512:
+        violations.append(
+            f"RESOLUTION_TOO_LOW: Cover resolution {width}x{height} is below standard 512px threshold."
+        )
+        suggested_fixes.append({
+            "type": "upscale_recommendation",
+            "target": f"{preset_meta['target_w']}x{preset_meta['target_h']}",
+        })
+
+    # Aspect ratio check
+    ratio = round(width / max(1, height), 4)
+    if not (preset_meta["min_ratio"] <= ratio <= preset_meta["max_ratio"]):
+        violations.append(
+            f"ASPECT_RATIO_MISMATCH: Aspect ratio {ratio} outside expected {target_preset} range "
+            f"[{preset_meta['min_ratio']}..{preset_meta['max_ratio']}]."
+        )
+        suggested_fixes.append({
+            "type": "resize_aspect_ratio",
+            "current_ratio": ratio,
+            "target_ratio_type": target_preset,
+            "recommended_resolution": [preset_meta["target_w"], preset_meta["target_h"]],
+        })
+
+    # Title check
+    title = str(cover.get("title") or "").strip()
+    title_len = len(title)
+    if title and title_len > 14:
+        violations.append(
+            f"TITLE_TOO_LONG: Headline length ({title_len} chars) exceeds 14-character recommended single-glance limit: '{title}'."
+        )
+        suggested_fixes.append({
+            "type": "truncate_headline",
+            "suggestion": title[:14].rstrip("，。！？ "),
+        })
+
+    title_y = float(cover.get("title_y_ratio", 0.28))
+    if title:
+        if title_y < 0.12:
+            violations.append(
+                f"TITLE_COLLIDES_HEADER: Title Y={title_y:.2f} collides with top status bar (min 0.12)."
+            )
+            suggested_fixes.append({"type": "adjust_title_y", "recommended_y": 0.28})
+        elif title_y > 0.80:
+            violations.append(
+                f"TITLE_COLLIDES_FOOTER: Title Y={title_y:.2f} collides with bottom interactive controls (max 0.80)."
+            )
+            suggested_fixes.append({"type": "adjust_title_y", "recommended_y": 0.28})
+
+    # AI disclaimer check
+    has_disclaimer = bool(cover.get("has_ai_disclaimer"))
+    if require_ai_disclaimer and not has_disclaimer:
+        violations.append(
+            "AI_DISCLAIMER_MISSING: Cover card lacks mandatory AI content disclosure tag (e.g. '本作品由AI辅助生成，剧情纯属虚构')."
+        )
+        suggested_fixes.append({
+            "type": "add_ai_disclaimer",
+            "text": "本作品由AI辅助生成，剧情纯属虚构",
+            "recommended_position": "bottom_right",
+        })
+
+    score = max(0, 100 - len(violations) * 20)
+
+    return SocialCoverReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        platform=platform,
+        metrics={
+            "width": width,
+            "height": height,
+            "ratio": ratio,
+            "target_preset": target_preset,
+            "title_length": title_len,
+            "title_y_ratio": title_y,
+            "has_ai_disclaimer": has_disclaimer,
+        },
+        suggested_fixes=suggested_fixes,
+    )
+
