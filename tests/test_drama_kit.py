@@ -7,6 +7,7 @@ from drama_kit import (
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
     inspect_social_cover_card,
+    inspect_character_anchor_pack,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -288,6 +289,60 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         )
         self.assertTrue(rep_vert.passed)
         self.assertEqual(rep_vert.metrics["target_preset"], "9:16")
+
+    def test_inspect_character_anchor_pack_passes_valid_star_topology(self):
+        chars = [
+            {
+                "id": "Lin",
+                "tier": "lead",
+                "anchor_hash": "sha256:lin_v2",
+                "clean_background": True,
+                "views": {
+                    "frontal_full": {},
+                    "closeup": {"source_anchor_hash": "sha256:lin_v2"},
+                    "side_90": {"source_anchor_hash": "sha256:lin_v2"},
+                    "back": {"source_anchor_hash": "sha256:lin_v2"},
+                },
+            },
+            {
+                "id": "Elder",
+                "tier": "supporting",
+                "anchor_hash": "sha256:elder_v1",
+                "clean_background": True,
+                "views": {
+                    "frontal_full": {},
+                    "closeup": {"source_anchor_hash": "sha256:elder_v1"},
+                },
+            },
+        ]
+        rep = inspect_character_anchor_pack(chars, referenced_speakers=["Lin", "Elder", "Narrator"])
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.stale_views, [])
+
+    def test_inspect_character_anchor_pack_catches_stale_multihop_and_missing_speaker(self):
+        chars = [
+            {
+                "id": "Lin",
+                "tier": "lead",
+                "anchor_hash": "sha256:lin_v3",
+                "clean_background": False,
+                "views": {
+                    "frontal_full": {},
+                    "closeup": {"source_anchor_hash": "sha256:lin_v2"},
+                    "side_90": {"source_anchor_hash": "sha256:lin_v3", "chained_from": "closeup"},
+                },
+            }
+        ]
+        rep = inspect_character_anchor_pack(chars, referenced_speakers=["Lin", "MysteryBoss"])
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("DIRTY_ANCHOR_BACKGROUND" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_REQUIRED_VIEW" in v for v in rep.violations))
+        self.assertTrue(any("STALE_DERIVED_VIEW" in v for v in rep.violations))
+        self.assertTrue(any("MULTI_HOP_DRIFT_RISK" in v for v in rep.violations))
+        self.assertTrue(any("UNANCHORED_SCRIPT_SPEAKER" in v for v in rep.violations))
+        self.assertEqual(len(rep.stale_views), 1)
+        self.assertEqual(rep.stale_views[0]["view"], "closeup")
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ from .gates import (
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
     inspect_social_cover_card,
+    inspect_character_anchor_pack,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -86,6 +87,32 @@ def main() -> None:
             ratio_type="3:4",
         )
 
+        sample_characters = [
+            {
+                "id": "Lin",
+                "tier": "lead",
+                "anchor_hash": "sha256:lin_v2",
+                "clean_background": True,
+                "views": {
+                    "frontal_full": {},
+                    "closeup": {"source_anchor_hash": "sha256:lin_v2"},
+                    "side_90": {"source_anchor_hash": "sha256:lin_v2"},
+                    "back": {"source_anchor_hash": "sha256:lin_v2"},
+                },
+            },
+            {
+                "id": "Elder",
+                "tier": "supporting",
+                "anchor_hash": "sha256:elder_v1",
+                "clean_background": True,
+                "views": {
+                    "frontal_full": {},
+                    "closeup": {"source_anchor_hash": "sha256:elder_v1"},
+                },
+            },
+        ]
+        anchor_report = inspect_character_anchor_pack(sample_characters, referenced_speakers=["Lin", "Elder"])
+
         print(
             json.dumps(
                 {
@@ -123,6 +150,12 @@ def main() -> None:
                         "violations": cover_report.violations,
                         "platform": cover_report.platform,
                         "metrics": cover_report.metrics,
+                    },
+                    "character_anchor_gate": {
+                        "passed": anchor_report.passed,
+                        "score": anchor_report.score,
+                        "violations": anchor_report.violations,
+                        "metrics": anchor_report.metrics,
                     },
                 },
                 ensure_ascii=False,

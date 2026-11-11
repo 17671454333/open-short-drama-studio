@@ -29,6 +29,10 @@
    - 严禁任何视频生成脚本中使用 `sine=frequency=...` 或低频正弦波/方波充当底噪产生“变压器嗡鸣”，单频正弦能量占比 $> 0.42$ 自动拦截。
    - 硬性校验立体声声道并挂载真实录音室母带（`ancient_suspense` 古风悬疑、`epic_climax` 高燃史诗、`action_battle` 战斗、`modern_urban` 都市、`tech_showcase` 科技宣发）。
    - 自动生成硬件级人声消噪（`highpass=f=85,afftdn=nf=-25`）与人声侧链自动闪避压制（Sidechain Ducking）滤镜链，配乐饱满且不抢台词。
+7. **📱 竖屏字幕安全区与多平台封面合规门禁 (`inspect_caption_safe_zone` / `inspect_social_cover_card`)**：
+   - 自动校验视频号 16 字单行标题红线、抖音/快手/小红书底部进度条与右侧互动栏遮挡避让，以及 `3:4` / `9:16` / `16:9` / `1:1` 封面比例与 AI 辅助生成显著声明标识。
+8. **🎭 跨镜头角色锚点拓扑与派生图过期校验门禁 (`inspect_character_anchor_pack`)**：
+   - 强制执行「正面全身主锚点 (`frontal_full`) 单跳辐射派生图」星型拓扑（严禁 `A -> B -> C` 多跳参考导致五官漂移），主图重出后自动拦截过期子视图 (`STALE_DERIVED_VIEW`) 并对账剧本说话人覆盖度。
 
 ---
 

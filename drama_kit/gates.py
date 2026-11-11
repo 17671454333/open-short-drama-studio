@@ -580,3 +580,96 @@ def inspect_social_cover_card(
         suggested_fixes=suggested_fixes,
     )
 
+
+@dataclass
+class CharacterAnchorReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    stale_views: List[Dict[str, str]] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+REQUIRED_CHARACTER_VIEWS: Dict[str, List[str]] = {
+    "lead": ["frontal_full", "closeup", "side_90", "back"],
+    "supporting": ["frontal_full", "closeup"],
+    "cameo": ["frontal_full"],
+}
+
+
+def inspect_character_anchor_pack(
+    characters: List[Dict[str, Any]],
+    referenced_speakers: Optional[List[str]] = None,
+) -> CharacterAnchorReport:
+    """
+    Deterministic cross-shot character consistency & turn-around reference gate:
+    1. Every character must establish a canonical `frontal_full` master anchor with a non-empty `anchor_hash`
+       and clean neutral background (`clean_background=True`) before derived views are generated.
+    2. Single-hop star topology: every derived view (`closeup`, `side_90`, `back`, `three_quarter`) must
+       directly reference the current `anchor_hash` (`source_anchor_hash == anchor_hash` and `chained_from` is empty)
+       to prevent multi-hop facial drift, and flags stale views when the master anchor is regenerated.
+    3. Tiered view completeness (`lead`: 4 views, `supporting`: 2 views, `cameo`: 1 view) and script speaker coverage.
+    """
+    violations: List[str] = []
+    stale_views: List[Dict[str, str]] = []
+    known_ids = set()
+    total_views = 0
+
+    for char in characters:
+        cid = str(char.get("id") or char.get("name") or "").strip()
+        if not cid:
+            violations.append("CHARACTER_ID_MISSING: Character entry lacks 'id' or 'name'.")
+            continue
+        known_ids.add(cid)
+        tier = str(char.get("tier") or "supporting").lower()
+        required_views = REQUIRED_CHARACTER_VIEWS.get(tier, REQUIRED_CHARACTER_VIEWS["supporting"])
+
+        anchor_hash = str(char.get("anchor_hash") or "").strip()
+        if not anchor_hash:
+            violations.append(f"MASTER_ANCHOR_MISSING: Character '{cid}' lacks canonical frontal_full 'anchor_hash'.")
+
+        if not bool(char.get("clean_background", True)):
+            violations.append(f"DIRTY_ANCHOR_BACKGROUND: Character '{cid}' master anchor must use clean neutral background.")
+
+        views = char.get("views") or {}
+        total_views += len(views)
+
+        for req_v in required_views:
+            if req_v not in views:
+                violations.append(f"MISSING_REQUIRED_VIEW: Character '{cid}' ({tier}) missing '{req_v}' reference view.")
+
+        for vname, vmeta in views.items():
+            if vname == "frontal_full":
+                continue
+            vdict = vmeta if isinstance(vmeta, dict) else {}
+            chained_from = str(vdict.get("chained_from") or "").strip()
+            if chained_from and chained_from != "frontal_full":
+                violations.append(
+                    f"MULTI_HOP_DRIFT_RISK: Character '{cid}' view '{vname}' chained from '{chained_from}' instead of 'frontal_full'."
+                )
+            src_hash = str(vdict.get("source_anchor_hash") or "").strip()
+            if anchor_hash and src_hash != anchor_hash:
+                violations.append(
+                    f"STALE_DERIVED_VIEW: Character '{cid}' view '{vname}' linked to '{src_hash or 'none'}' != current anchor '{anchor_hash}'."
+                )
+                stale_views.append({"character": cid, "view": vname, "expected_hash": anchor_hash, "actual_hash": src_hash})
+
+    if referenced_speakers:
+        for spk in referenced_speakers:
+            s_clean = str(spk).strip()
+            if s_clean and s_clean.lower() not in ("narrator", "旁白", "system", "系统") and s_clean not in known_ids:
+                violations.append(f"UNANCHORED_SCRIPT_SPEAKER: Script speaker '{s_clean}' has no character reference pack.")
+
+    score = max(0, 100 - len(violations) * 20)
+    return CharacterAnchorReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        stale_views=stale_views,
+        metrics={
+            "character_count": len(known_ids),
+            "total_views": total_views,
+            "stale_view_count": len(stale_views),
+        },
+    )
+

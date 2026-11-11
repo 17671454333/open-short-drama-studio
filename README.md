@@ -40,6 +40,10 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
 7. **📱 Mobile 9:16 Caption & Title Safe-Zone Inspector (`inspect_caption_safe_zone`)**:
    - Enforces platform UI obstacle avoidance for vertical video across **Douyin, Kuaishou, WeChat Channels, Xiaohongshu, and TikTok** (top status bar `0..12%`, bottom title/progress scrubber `78%~80%..100%`, and right action buttons `82%..100%`).
    - Validates WeChat Channels 16-character single-line title constraint and subtitle line density ($\le 18$ characters) with automated title truncation and caption-splitting repair suggestions.
+8. **🖼️ Multi-Platform Social Cover Compliance Gate (`inspect_social_cover_card`)**:
+   - Validates aspect ratio & minimum resolution across `3:4` (Xiaohongshu), `9:16` (WeChat Channels/Douyin/TikTok), `16:9` (Bilibili/YouTube), and `1:1` (Bilibili Toy), plus headline length ($\le 14$ chars) and mandatory AI-generated content disclosure tags.
+9. **🎭 Cross-Shot Character Anchor & Stale-View Gate (`inspect_character_anchor_pack`)**:
+   - Enforces single-hop star reference topology (`frontal_full` master anchor $\to$ `closeup`, `side_90`, `back`) to eliminate multi-hop facial drift, detects stale derived views when master anchors are regenerated, and audits script speaker coverage.
 
 ---
 
