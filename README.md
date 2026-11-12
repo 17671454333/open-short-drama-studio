@@ -44,6 +44,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
    - Validates aspect ratio & minimum resolution across `3:4` (Xiaohongshu), `9:16` (WeChat Channels/Douyin/TikTok), `16:9` (Bilibili/YouTube), and `1:1` (Bilibili Toy), plus headline length ($\le 14$ chars) and mandatory AI-generated content disclosure tags.
 9. **🎭 Cross-Shot Character Anchor & Stale-View Gate (`inspect_character_anchor_pack`)**:
    - Enforces single-hop star reference topology (`frontal_full` master anchor $\to$ `closeup`, `side_90`, `back`) to eliminate multi-hop facial drift, detects stale derived views when master anchors are regenerated, and audits script speaker coverage.
+10. **🎞️ Multi-Platform `-14 LUFS` MP4 Master Delivery Gate (`inspect_master_video_delivery`)**:
+    - Pre-publish stream & loudness audit enforcing `-14.0 ± 2.5 LUFS` integrated loudness, `<= -1.0 dBTP` true-peak ceiling, `yuv420p` mobile decoder compatibility, front-loaded `+faststart` `moov` atom, constant frame rate (CFR) lip-sync integrity, A/V duration alignment (`<= 120ms`), and zero cold-open black frames (`<= 0.15s`), complete with one-click FFmpeg remastering arguments.
 
 ---
 

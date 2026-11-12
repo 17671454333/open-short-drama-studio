@@ -8,6 +8,7 @@ from drama_kit import (
     inspect_caption_safe_zone,
     inspect_social_cover_card,
     inspect_character_anchor_pack,
+    inspect_master_video_delivery,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -343,6 +344,52 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("UNANCHORED_SCRIPT_SPEAKER" in v for v in rep.violations))
         self.assertEqual(len(rep.stale_views), 1)
         self.assertEqual(rep.stale_views[0]["view"], "closeup")
+
+    def test_inspect_master_video_delivery_passes_clean_master(self):
+        rep = inspect_master_video_delivery(
+            {
+                "pix_fmt": "yuv420p",
+                "faststart_moov": True,
+                "is_vfr": False,
+                "fps": 30.0,
+                "integrated_lufs": -14.2,
+                "true_peak_dbtp": -1.5,
+                "video_duration_sec": 62.5,
+                "audio_duration_sec": 62.54,
+                "leading_black_sec": 0.05,
+            }
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertIn("+faststart", rep.ffmpeg_remaster_args)
+        self.assertIn("loudnorm=I=-14.0", rep.ffmpeg_remaster_args)
+
+    def test_inspect_master_video_delivery_catches_all_stream_and_loudness_traps(self):
+        rep = inspect_master_video_delivery(
+            {
+                "pix_fmt": "yuv444p",
+                "faststart_moov": False,
+                "is_vfr": True,
+                "fps": 24.0,
+                "integrated_lufs": -21.0,
+                "true_peak_dbtp": -0.2,
+                "video_duration_sec": 45.0,
+                "audio_duration_sec": 44.5,
+                "leading_black_sec": 0.60,
+            }
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("UNSUPPORTED_PIX_FMT" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_FASTSTART_MOOV" in v for v in rep.violations))
+        self.assertTrue(any("VARIABLE_FRAME_RATE_DRIFT" in v for v in rep.violations))
+        self.assertTrue(any("LOUDNESS_OUT_OF_TARGET" in v for v in rep.violations))
+        self.assertTrue(any("TRUE_PEAK_CLIPPING_RISK" in v for v in rep.violations))
+        self.assertTrue(any("AV_DURATION_DESYNC" in v for v in rep.violations))
+        self.assertTrue(any("LEADING_BLACK_FRAME_TRAP" in v for v in rep.violations))
+        self.assertIn("-ss 0.60", rep.ffmpeg_remaster_args)
+        self.assertIn("-pix_fmt yuv420p", rep.ffmpeg_remaster_args)
 
 if __name__ == "__main__":
     unittest.main()

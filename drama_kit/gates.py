@@ -673,3 +673,121 @@ def inspect_character_anchor_pack(
         },
     )
 
+
+@dataclass
+class MasterVideoDeliveryReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    ffmpeg_remaster_args: str = ""
+
+
+MASTER_DELIVERY_TARGETS: Dict[str, Any] = {
+    "target_lufs": -14.0,
+    "lufs_tolerance": 2.5,
+    "max_true_peak_dbtp": -1.0,
+    "max_av_desync_sec": 0.12,
+    "max_leading_black_sec": 0.15,
+    "required_pix_fmt": "yuv420p",
+}
+
+
+def inspect_master_video_delivery(
+    master_spec: Dict[str, Any],
+    target_lufs: float = -14.0,
+) -> MasterVideoDeliveryReport:
+    """
+    Deterministic final MP4 master delivery gate for multi-platform publishing
+    (Douyin, WeChat Channels, Xiaohongshu, Bilibili, YouTube, TikTok):
+    1. Loudness & True Peak: integrated loudness within `target_lufs ± 2.5 LUFS` (default `-14.0 LUFS`)
+       and `true_peak_dbtp <= -1.0 dBTP` to prevent mobile speaker distortion or platform AAC clipping.
+    2. Stream Compatibility: requires `pix_fmt == 'yuv420p'` (avoids iOS/WeChat `yuv444p` black-screen decode failure)
+       and `faststart_moov == True` (`-movflags +faststart`) for instant mobile playback.
+    3. Frame Timing & Lip-Sync Integrity: blocks variable frame rate (`is_vfr == True`) and enforces
+       audio/video stream duration delta `<= 0.12s` (120ms).
+    4. Cold-Open Retention Guard: blocks leading black frames `> 0.15s` at `t=0.0s`.
+    """
+    violations: List[str] = []
+
+    pix_fmt = str(master_spec.get("pix_fmt") or "yuv420p").strip().lower()
+    faststart = bool(master_spec.get("faststart_moov", True))
+    is_vfr = bool(master_spec.get("is_vfr", False))
+    fps = float(master_spec.get("fps", 30.0))
+    integrated_lufs = float(master_spec.get("integrated_lufs", target_lufs))
+    true_peak_dbtp = float(master_spec.get("true_peak_dbtp", -1.5))
+    video_dur = float(master_spec.get("video_duration_sec", 0.0))
+    audio_dur = float(master_spec.get("audio_duration_sec", video_dur))
+    leading_black = float(master_spec.get("leading_black_sec", 0.0))
+
+    av_delta = round(abs(video_dur - audio_dur), 4)
+
+    if pix_fmt != MASTER_DELIVERY_TARGETS["required_pix_fmt"]:
+        violations.append(
+            f"UNSUPPORTED_PIX_FMT: Pixel format '{pix_fmt}' fails mobile hardware decoders; must be 'yuv420p'."
+        )
+
+    if not faststart:
+        violations.append(
+            "MISSING_FASTSTART_MOOV: MP4 'moov' atom is not front-loaded; enable '-movflags +faststart'."
+        )
+
+    if is_vfr:
+        violations.append(
+            "VARIABLE_FRAME_RATE_DRIFT: VFR stream detected; transcode to constant frame rate (CFR) to prevent lip-sync drift."
+        )
+
+    tol = float(MASTER_DELIVERY_TARGETS["lufs_tolerance"])
+    if abs(integrated_lufs - target_lufs) > tol:
+        violations.append(
+            f"LOUDNESS_OUT_OF_TARGET: Integrated loudness {integrated_lufs:.1f} LUFS outside [{target_lufs - tol:.1f}, {target_lufs + tol:.1f}] LUFS."
+        )
+
+    max_tp = float(MASTER_DELIVERY_TARGETS["max_true_peak_dbtp"])
+    if true_peak_dbtp > max_tp:
+        violations.append(
+            f"TRUE_PEAK_CLIPPING_RISK: True peak {true_peak_dbtp:.1f} dBTP exceeds {max_tp:.1f} dBTP ceiling."
+        )
+
+    max_desync = float(MASTER_DELIVERY_TARGETS["max_av_desync_sec"])
+    if video_dur <= 0:
+        violations.append("INVALID_VIDEO_DURATION: Video duration must be positive.")
+    elif av_delta > max_desync:
+        violations.append(
+            f"AV_DURATION_DESYNC: Audio/video duration delta {av_delta:.3f}s exceeds {max_desync:.2f}s threshold."
+        )
+
+    max_black = float(MASTER_DELIVERY_TARGETS["max_leading_black_sec"])
+    if leading_black > max_black:
+        violations.append(
+            f"LEADING_BLACK_FRAME_TRAP: Leading black intro {leading_black:.2f}s > {max_black:.2f}s hurts 3-second retention."
+        )
+
+    trim_prefix = f"-ss {leading_black:.2f} " if leading_black > max_black else ""
+    target_fps = int(round(fps)) if fps >= 24 else 30
+    remaster_args = (
+        f"{trim_prefix}-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p "
+        f"-r {target_fps} -fps_mode cfr "
+        f"-af loudnorm=I={target_lufs:.1f}:TP=-1.5:LRA=11 "
+        f"-c:a aac -b:a 192k -ar 48000 -shortest -movflags +faststart"
+    )
+
+    score = max(0, 100 - len(violations) * 18)
+    return MasterVideoDeliveryReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "pix_fmt": pix_fmt,
+            "faststart_moov": faststart,
+            "is_vfr": is_vfr,
+            "fps": fps,
+            "integrated_lufs": integrated_lufs,
+            "true_peak_dbtp": true_peak_dbtp,
+            "av_duration_delta_sec": av_delta,
+            "leading_black_sec": leading_black,
+        },
+        ffmpeg_remaster_args=remaster_args,
+    )
+
+

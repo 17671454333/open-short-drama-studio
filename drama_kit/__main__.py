@@ -10,6 +10,7 @@ from .gates import (
     inspect_caption_safe_zone,
     inspect_social_cover_card,
     inspect_character_anchor_pack,
+    inspect_master_video_delivery,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -112,6 +113,19 @@ def main() -> None:
             },
         ]
         anchor_report = inspect_character_anchor_pack(sample_characters, referenced_speakers=["Lin", "Elder"])
+        master_report = inspect_master_video_delivery(
+            {
+                "pix_fmt": "yuv420p",
+                "faststart_moov": True,
+                "is_vfr": False,
+                "fps": 30.0,
+                "integrated_lufs": -14.1,
+                "true_peak_dbtp": -1.5,
+                "video_duration_sec": 14.0,
+                "audio_duration_sec": 14.02,
+                "leading_black_sec": 0.0,
+            }
+        )
 
         print(
             json.dumps(
@@ -156,6 +170,12 @@ def main() -> None:
                         "score": anchor_report.score,
                         "violations": anchor_report.violations,
                         "metrics": anchor_report.metrics,
+                    },
+                    "master_delivery_gate": {
+                        "passed": master_report.passed,
+                        "score": master_report.score,
+                        "violations": master_report.violations,
+                        "metrics": master_report.metrics,
                     },
                 },
                 ensure_ascii=False,
