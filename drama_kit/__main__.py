@@ -11,6 +11,7 @@ from .gates import (
     inspect_social_cover_card,
     inspect_character_anchor_pack,
     inspect_master_video_delivery,
+    inspect_multishot_segment_cuts,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -126,6 +127,33 @@ def main() -> None:
                 "leading_black_sec": 0.0,
             }
         )
+        segment_report = inspect_multishot_segment_cuts(
+            {
+                "cuts": [
+                    {
+                        "start_sec": 0.0,
+                        "duration_sec": 3.5,
+                        "keyframe_ref": "Picture_1_Lin_Master",
+                        "picture_refs": ["Picture_1_Lin_Master", "Picture_2_Cliff_Scene"],
+                        "dialogue": "",
+                    },
+                    {
+                        "start_sec": 3.5,
+                        "duration_sec": 4.5,
+                        "keyframe_ref": "Picture_3_Lin_Closeup",
+                        "picture_refs": ["Picture_1_Lin_Master", "Picture_3_Lin_Closeup"],
+                        "dialogue": "三十年河东，今日这把剑归我了！",
+                    },
+                    {
+                        "start_sec": 8.0,
+                        "duration_sec": 4.0,
+                        "keyframe_ref": "Picture_4_Elder_Reaction",
+                        "picture_refs": ["Picture_4_Elder_Reaction"],
+                        "dialogue": "你竟敢毁掉护宗大阵？",
+                    },
+                ]
+            }
+        )
 
         print(
             json.dumps(
@@ -176,6 +204,13 @@ def main() -> None:
                         "score": master_report.score,
                         "violations": master_report.violations,
                         "metrics": master_report.metrics,
+                    },
+                    "multishot_segment_gate": {
+                        "passed": segment_report.passed,
+                        "score": segment_report.score,
+                        "violations": segment_report.violations,
+                        "metrics": segment_report.metrics,
+                        "alignment_header": segment_report.alignment_header,
                     },
                 },
                 ensure_ascii=False,

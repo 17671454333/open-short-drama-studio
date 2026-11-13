@@ -9,6 +9,7 @@ from drama_kit import (
     inspect_social_cover_card,
     inspect_character_anchor_pack,
     inspect_master_video_delivery,
+    inspect_multishot_segment_cuts,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -390,6 +391,79 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("LEADING_BLACK_FRAME_TRAP" in v for v in rep.violations))
         self.assertIn("-ss 0.60", rep.ffmpeg_remaster_args)
         self.assertIn("-pix_fmt yuv420p", rep.ffmpeg_remaster_args)
+
+    def test_inspect_multishot_segment_cuts_passes_aligned_h3_segment(self):
+        rep = inspect_multishot_segment_cuts(
+            {
+                "cuts": [
+                    {
+                        "start_sec": 0.0,
+                        "duration_sec": 3.5,
+                        "keyframe_ref": "Pic1_Master",
+                        "picture_refs": ["Pic1_Master", "Pic2_Env"],
+                        "dialogue": "",
+                    },
+                    {
+                        "start_sec": 3.5,
+                        "duration_sec": 4.5,
+                        "keyframe_ref": "Pic3_SubCut",
+                        "picture_refs": ["Pic1_Master", "Pic3_SubCut"],
+                        "dialogue": "三十年河东，今日这把剑归我了！",
+                    },
+                    {
+                        "start_sec": 8.0,
+                        "duration_sec": 4.0,
+                        "keyframe_ref": "Pic4_Reaction",
+                        "picture_refs": ["Pic4_Reaction"],
+                        "dialogue": "你竟敢毁掉护宗大阵？",
+                    },
+                ]
+            }
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["total_duration_sec"], 12.0)
+        self.assertEqual(rep.metrics["unique_picture_refs"], 4)
+        self.assertIn("[Shot 1 @ 0.00s-3.50s | KF: Pic1_Master]", rep.alignment_header)
+
+    def test_inspect_multishot_segment_cuts_catches_drift_overflow_and_lip_sync_overload(self):
+        rep = inspect_multishot_segment_cuts(
+            {
+                "cuts": [
+                    {
+                        "start_sec": 0.5,
+                        "duration_sec": 1.0,
+                        "keyframe_ref": "",
+                        "picture_refs": ["P1", "P2"],
+                        "dialogue": "短短一秒塞入十几字台词必然嘴型崩坏",
+                    },
+                    {
+                        "start_sec": 2.0,
+                        "duration_sec": 7.5,
+                        "keyframe_ref": "P3",
+                        "picture_refs": ["P3", "P4", "P5"],
+                        "dialogue": "",
+                    },
+                    {
+                        "start_sec": 8.5,
+                        "duration_sec": 7.0,
+                        "keyframe_ref": "P6",
+                        "picture_refs": ["P6"],
+                        "dialogue": "",
+                    },
+                ]
+            }
+        )
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("MASTER_KEYFRAME_NOT_AT_ZERO" in v for v in rep.violations))
+        self.assertTrue(any("SHOT_CUT_TOO_SHORT" in v for v in rep.violations))
+        self.assertTrue(any("DIALOGUE_PACING_OVERFLOW" in v for v in rep.violations))
+        self.assertTrue(any("CUT_TIMESTAMP_DRIFT" in v for v in rep.violations))
+        self.assertTrue(any("SHOT_CUT_STAGNANT_RISK" in v for v in rep.violations))
+        self.assertTrue(any("SEGMENT_DURATION_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("REFERENCE_IMAGE_SLOT_OVERFLOW" in v for v in rep.violations))
+
 
 if __name__ == "__main__":
     unittest.main()

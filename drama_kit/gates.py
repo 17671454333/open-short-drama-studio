@@ -791,3 +791,126 @@ def inspect_master_video_delivery(
     )
 
 
+@dataclass
+class MultiShotSegmentReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    alignment_header: str = ""
+
+
+MULTISHOT_SEGMENT_LIMITS: Dict[str, Any] = {
+    "max_segment_sec": 15.0,
+    "min_shot_sec": 1.5,
+    "max_shot_sec": 6.0,
+    "max_reference_pictures": 4,
+    "max_chars_per_sec": 4.8,
+}
+
+
+def inspect_multishot_segment_cuts(
+    segment: Dict[str, Any],
+    *,
+    max_segment_sec: float = 15.0,
+) -> MultiShotSegmentReport:
+    """
+    Deterministic multi-shot AI video segment gate (MiniMax H3 `[Shot k]` / Seedance 2.0 / Omni Flash):
+    1. Segment duration ceiling: total duration across cuts must be `<= max_segment_sec` (default `15.0s`)
+       to avoid silent tail truncation in single-pass video generation.
+    2. Master keyframe zero-pinning: `cuts[0]` must start at `0.00s` (`<= 0.02s`) with a non-empty `keyframe_ref`.
+    3. Cut-point continuity & shot rhythm: each cut's `start_sec` must match cumulative prior duration (`<= 0.05s` drift)
+       and stay within `[1.5s, 6.0s]` to prevent micro-cut morphing flicker or stagnant long takes.
+    4. Reference image slot cap (`<= 4` unique `Picture` references per generation) and `<d>` dialogue lip-sync
+       pacing (`<= 4.8` spoken chars/sec).
+    """
+    violations: List[str] = []
+    cuts = segment.get("cuts") or []
+    if not isinstance(cuts, list) or len(cuts) == 0:
+        return MultiShotSegmentReport(
+            passed=False,
+            score=0,
+            violations=["EMPTY_SEGMENT_CUTS: Multi-shot segment must contain at least one cut entry."],
+            metrics={"cut_count": 0, "total_duration_sec": 0.0, "unique_picture_refs": 0},
+            alignment_header="",
+        )
+
+    min_shot = float(MULTISHOT_SEGMENT_LIMITS["min_shot_sec"])
+    max_shot = float(MULTISHOT_SEGMENT_LIMITS["max_shot_sec"])
+    max_pics = int(MULTISHOT_SEGMENT_LIMITS["max_reference_pictures"])
+    max_cps = float(MULTISHOT_SEGMENT_LIMITS["max_chars_per_sec"])
+
+    cumulative_sec = 0.0
+    unique_pics: List[str] = []
+    header_parts: List[str] = []
+
+    for idx, cut in enumerate(cuts):
+        cdict = cut if isinstance(cut, dict) else {}
+        shot_no = idx + 1
+        start_sec = float(cdict.get("start_sec", cumulative_sec))
+        dur_sec = float(cdict.get("duration_sec", 0.0))
+        kf_ref = str(cdict.get("keyframe_ref") or "").strip()
+        dialogue = re.sub(r"\s+", "", str(cdict.get("dialogue") or ""))
+
+        if idx == 0:
+            if abs(start_sec) > 0.02 or not kf_ref:
+                violations.append(
+                    f"MASTER_KEYFRAME_NOT_AT_ZERO: Shot 1 must pin master keyframe at 0.00s (got start={start_sec:.2f}s, keyframe='{kf_ref or 'none'}')."
+                )
+        else:
+            if abs(start_sec - cumulative_sec) > 0.05:
+                violations.append(
+                    f"CUT_TIMESTAMP_DRIFT: Shot {shot_no} start_sec={start_sec:.2f}s drifts from cumulative {cumulative_sec:.2f}s."
+                )
+
+        if dur_sec < min_shot:
+            violations.append(
+                f"SHOT_CUT_TOO_SHORT: Shot {shot_no} duration {dur_sec:.2f}s < {min_shot:.1f}s causes morphing flicker."
+            )
+        elif dur_sec > max_shot:
+            violations.append(
+                f"SHOT_CUT_STAGNANT_RISK: Shot {shot_no} duration {dur_sec:.2f}s > {max_shot:.1f}s risks motion decay; add a sub-cut."
+            )
+
+        if dialogue and dur_sec > 0:
+            cps = len(dialogue) / dur_sec
+            if cps > max_cps:
+                violations.append(
+                    f"DIALOGUE_PACING_OVERFLOW: Shot {shot_no} packs {len(dialogue)} chars into {dur_sec:.2f}s ({cps:.2f} chars/s > {max_cps:.1f})."
+                )
+
+        for pref in cdict.get("picture_refs") or ([] if not kf_ref else [kf_ref]):
+            pstr = str(pref).strip()
+            if pstr and pstr not in unique_pics:
+                unique_pics.append(pstr)
+
+        end_sec = cumulative_sec + max(0.0, dur_sec)
+        header_parts.append(f"[Shot {shot_no} @ {cumulative_sec:.2f}s-{end_sec:.2f}s | KF: {kf_ref or 'auto'}]")
+        cumulative_sec = end_sec
+
+    total_dur = round(cumulative_sec, 4)
+    if total_dur > max_segment_sec:
+        violations.append(
+            f"SEGMENT_DURATION_EXCEEDED: Segment total {total_dur:.2f}s exceeds {max_segment_sec:.1f}s single-generation limit."
+        )
+
+    if len(unique_pics) > max_pics:
+        violations.append(
+            f"REFERENCE_IMAGE_SLOT_OVERFLOW: Segment binds {len(unique_pics)} unique reference pictures (max {max_pics})."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return MultiShotSegmentReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "cut_count": len(cuts),
+            "total_duration_sec": total_dur,
+            "unique_picture_refs": len(unique_pics),
+            "max_segment_sec": max_segment_sec,
+        },
+        alignment_header=" -> ".join(header_parts),
+    )
+
+
