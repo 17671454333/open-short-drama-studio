@@ -4,6 +4,7 @@ from drama_kit import (
     calculate_storyboard_budget,
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
+    inspect_webgame_archive_manifest,
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
     inspect_social_cover_card,
@@ -463,6 +464,63 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("SHOT_CUT_STAGNANT_RISK" in v for v in rep.violations))
         self.assertTrue(any("SEGMENT_DURATION_EXCEEDED" in v for v in rep.violations))
         self.assertTrue(any("REFERENCE_IMAGE_SLOT_OVERFLOW" in v for v in rep.violations))
+
+    def test_inspect_webgame_archive_manifest_passes_clean_portal_zip(self):
+        rep = inspect_webgame_archive_manifest(
+            {
+                "files": [
+                    {"path": "index.html", "size_bytes": 16_384},
+                    {"path": "assets/hero.png", "size_bytes": 512_000},
+                    {"path": "audio/bgm_master.ogg", "size_bytes": 1_048_576},
+                ],
+                "referenced_assets": ["./assets/hero.png", "./audio/bgm_master.ogg"],
+                "requires_threads": False,
+            },
+            portal="bilibili_toy",
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+
+    def test_inspect_webgame_archive_manifest_catches_nested_leaks_case_and_sab_traps(self):
+        rep = inspect_webgame_archive_manifest(
+            {
+                "files": [
+                    {"path": "dist/index.html", "size_bytes": 20_000},
+                    {"path": "assets\\hero.png", "size_bytes": 25 * 1024 * 1024},
+                    {"path": "assets/bgm.ogg", "size_bytes": 30 * 1024 * 1024},
+                    {"path": ".env.production", "size_bytes": 256},
+                    {"path": "bundle.js.map", "size_bytes": 102_400},
+                ],
+                "referenced_assets": ["./assets/Hero.png", "./assets/missing_sfx.wav"],
+                "requires_threads": True,
+            },
+            portal="bilibili_toy",
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("NESTED_ROOT_INDEX" in v for v in rep.violations))
+        self.assertTrue(any("BACKSLASH_ZIP_ENTRY" in v for v in rep.violations))
+        self.assertTrue(any("SENSITIVE_ARTIFACT_LEAK" in v for v in rep.violations))
+        self.assertTrue(any("BUNDLE_SIZE_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("SINGLE_FILE_SIZE_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("CASE_MISMATCH_ASSET_REF" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_REFERENCED_ASSET" in v for v in rep.violations))
+        self.assertTrue(any("SHARED_ARRAY_BUFFER_PORTAL_INCOMPATIBLE" in v for v in rep.violations))
+
+    def test_inspect_webgame_archive_manifest_enforces_wechat_minigame_4mb_cap_and_entry(self):
+        rep = inspect_webgame_archive_manifest(
+            {
+                "files": [
+                    {"path": "index.html", "size_bytes": 10_000},
+                    {"path": "pkg/main.wasm", "size_bytes": 5 * 1024 * 1024},
+                ],
+            },
+            portal="wechat_minigame",
+        )
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("MISSING_ROOT_ENTRY" in v for v in rep.violations))
+        self.assertTrue(any("BUNDLE_SIZE_EXCEEDED" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

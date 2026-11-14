@@ -6,6 +6,7 @@ from .gates import (
     calculate_storyboard_budget,
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
+    inspect_webgame_archive_manifest,
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
     inspect_social_cover_card,
@@ -155,6 +156,20 @@ def main() -> None:
             }
         )
 
+        archive_report = inspect_webgame_archive_manifest(
+            {
+                "files": [
+                    {"path": "index.html", "size_bytes": 18_432},
+                    {"path": "assets/hero.png", "size_bytes": 420_000},
+                    {"path": "audio/bgm_loop.ogg", "size_bytes": 1_250_000},
+                    {"path": "vendor/phaser.min.js", "size_bytes": 980_000},
+                ],
+                "referenced_assets": ["./assets/hero.png", "./audio/bgm_loop.ogg", "./vendor/phaser.min.js"],
+                "requires_threads": False,
+            },
+            portal="bilibili_toy",
+        )
+
         print(
             json.dumps(
                 {
@@ -211,6 +226,13 @@ def main() -> None:
                         "violations": segment_report.violations,
                         "metrics": segment_report.metrics,
                         "alignment_header": segment_report.alignment_header,
+                    },
+                    "webgame_archive_gate": {
+                        "passed": archive_report.passed,
+                        "score": archive_report.score,
+                        "portal": archive_report.portal,
+                        "violations": archive_report.violations,
+                        "metrics": archive_report.metrics,
                     },
                 },
                 ensure_ascii=False,

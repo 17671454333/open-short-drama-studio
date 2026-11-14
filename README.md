@@ -48,6 +48,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
     - Pre-publish stream & loudness audit enforcing `-14.0 ± 2.5 LUFS` integrated loudness, `<= -1.0 dBTP` true-peak ceiling, `yuv420p` mobile decoder compatibility, front-loaded `+faststart` `moov` atom, constant frame rate (CFR) lip-sync integrity, A/V duration alignment (`<= 120ms`), and zero cold-open black frames (`<= 0.15s`), complete with one-click FFmpeg remastering arguments.
 11. **🎬 Multi-Shot `<= 15s` Segment & Keyframe Cut-Point Gate (`inspect_multishot_segment_cuts`)**:
     - Deterministic pre-generation validator for MiniMax H3 `[Shot k]`, Seedance 2.0, and Omni Flash multi-cut segments: enforces `0.00s` master keyframe pinning, monotonic cut-point continuity, `[1.5s, 6.0s]` per-cut rhythm bounds, `<= 15.0s` single-pass duration ceiling, `<= 4` reference `Picture` slots, and `<= 4.8 chars/s` `<d>` lip-sync pacing.
+12. **📦 Multi-Portal WebGame ZIP Release Archive Gate (`inspect_webgame_archive_manifest`)**:
+    - Pre-upload ZIP manifest auditor for **Bilibili Toy, Itch.io, CrazyGames, and WeChat Mini-Games**: blocks nested wrapper directories (`dist/index.html`), Windows backslash ZIP entries, `.env` / `.git` / `.map` artifact leaks, portal MB ceilings (`4MB` WeChat main package, `50MB` Toy), Linux CDN case-mismatch asset 404s, and incompatible `SharedArrayBuffer` threaded WASM builds.
 
 ---
 

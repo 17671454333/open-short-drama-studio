@@ -37,6 +37,8 @@
    - 上架前一键核验 `-14.0 ± 2.5 LUFS` 响度靶心、`<= -1.0 dBTP` 防爆音真峰值上限、`yuv420p` 移动端硬解像素格式、`+faststart` 流式秒开 `moov` 前置头、CFR 恒定帧率防口型漂移、音画时长同步（误差 `<= 120ms`）与冷开场零黑屏（`<= 0.15s`），并自动输出 FFmpeg 母带重压制命令参数。
 10. **🎬 多镜头单段 `<= 15s` 切点对齐与参考图槽位门禁 (`inspect_multishot_segment_cuts`)**：
     - 面向 MiniMax H3 `[Shot k]`、Seedance 2.0 与 Omni Flash 单次多镜生成，确定性校验主分镜图钉死 `0.00s`、切点时刻累加零漂移、单镜 `[1.5s, 6.0s]` 防闪烁/防长镜衰减、单段总长 `<= 15.0s` 防截断、单段参考图槽位 `<= 4` 张以及 `<d>` 台词口型语速 `<= 4.8 字/秒`。
+11. **📦 多平台网页游戏 ZIP 发行包结构与体积门禁 (`inspect_webgame_archive_manifest`)**：
+    - 面向 **B站 Toy、Itch.io、CrazyGames 与微信小游戏** 上架前 ZIP 清单审计：拦截外层目录嵌套白屏（`dist/index.html`）、Windows 反斜杠 ZIP 条目、`.env` / `.git` / `.map` 敏感源码泄露、平台主包体积超限（如微信小游戏 `4MB` 硬顶）、Linux CDN 大小写敏感资源 404 以及无 COOP/COEP 头平台的 `SharedArrayBuffer` 多线程 WASM 兼容隐患。
 
 ---
 

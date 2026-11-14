@@ -914,3 +914,157 @@ def inspect_multishot_segment_cuts(
     )
 
 
+@dataclass
+class WebGameArchiveReport:
+    passed: bool
+    score: int
+    portal: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+WEBGAME_PORTAL_LIMITS: Dict[str, Dict[str, Any]] = {
+    "bilibili_toy": {"max_total_mb": 50.0, "max_single_file_mb": 20.0, "supports_sab": False, "entry_files": ("index.html",)},
+    "itch_io": {"max_total_mb": 200.0, "max_single_file_mb": 100.0, "supports_sab": True, "entry_files": ("index.html",)},
+    "crazygames": {"max_total_mb": 100.0, "max_single_file_mb": 50.0, "supports_sab": False, "entry_files": ("index.html",)},
+    "wechat_minigame": {"max_total_mb": 4.0, "max_single_file_mb": 2.0, "supports_sab": False, "entry_files": ("game.js", "game.json")},
+}
+
+_ARCHIVE_SENSITIVE_ENTRY_PATTERN = re.compile(
+    r"(?:^|/)(?:"
+    r"\.env(?:\.[A-Za-z0-9._-]+)?|"
+    r"\.git(?:/|$)|"
+    r"node_modules(?:/|$)|"
+    r"[^/]+\.(?:pem|key|pfx|p12|map)"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def inspect_webgame_archive_manifest(
+    manifest: Dict[str, Any],
+    *,
+    portal: str = "bilibili_toy",
+) -> WebGameArchiveReport:
+    """
+    Deterministic ZIP release archive inspector for HTML5 / Godot 4 / Phaser WebGames targeting
+    Bilibili Toy, Itch.io, CrazyGames, and WeChat Mini-Game portals:
+    1. Root entry verification: catches nested wrapper directories (`dist/index.html` instead of `index.html`)
+       or missing `game.js` + `game.json` in WeChat Mini-Games.
+    2. POSIX path normalization: catches Windows backslash (`\\`) ZIP entries that fail on Linux CDNs.
+    3. Artifact hygiene & DLP: blocks `.env`, `.git/`, `node_modules/`, private keys, and `.map` sourcemaps.
+    4. Portal size budgets: enforces total bundle MB and single-asset MB ceilings per portal.
+    5. Case-sensitive asset resolution: catches `assets/Hero.png` vs `assets/hero.png` mismatches.
+    6. `SharedArrayBuffer` / threaded WASM compatibility check per portal (`requires_threads`).
+    """
+    violations: List[str] = []
+    portal_key = portal.strip().lower()
+    preset = WEBGAME_PORTAL_LIMITS.get(portal_key, WEBGAME_PORTAL_LIMITS["bilibili_toy"])
+
+    raw_files = manifest.get("files") or []
+    entries: List[Dict[str, Any]] = []
+    for item in raw_files:
+        if isinstance(item, str):
+            entries.append({"path": item, "size_bytes": 0})
+        elif isinstance(item, dict):
+            entries.append({"path": str(item.get("path") or ""), "size_bytes": int(item.get("size_bytes") or 0)})
+
+    normalized_paths: List[str] = []
+    total_bytes = 0
+    max_file_bytes = 0
+    max_file_path = ""
+    backslash_entries: List[str] = []
+    leaked_entries: List[str] = []
+
+    for ent in entries:
+        raw_p = ent["path"].strip()
+        sz = max(0, ent["size_bytes"])
+        total_bytes += sz
+        if sz > max_file_bytes:
+            max_file_bytes = sz
+            max_file_path = raw_p
+        if "\\" in raw_p:
+            backslash_entries.append(raw_p)
+        norm_p = raw_p.replace("\\", "/").lstrip("./")
+        if norm_p:
+            normalized_paths.append(norm_p)
+            if _ARCHIVE_SENSITIVE_ENTRY_PATTERN.search(norm_p):
+                leaked_entries.append(norm_p)
+
+    if backslash_entries:
+        violations.append(
+            f"BACKSLASH_ZIP_ENTRY: {len(backslash_entries)} entry path(s) contain Windows backslashes (e.g. '{backslash_entries[0]}'); normalize to forward slashes."
+        )
+
+    if leaked_entries:
+        violations.append(
+            f"SENSITIVE_ARTIFACT_LEAK: Release archive includes forbidden source/secret files: {', '.join(leaked_entries[:3])}."
+        )
+
+    exact_set = set(normalized_paths)
+    lower_map = {p.lower(): p for p in normalized_paths}
+
+    required_entries = preset["entry_files"]
+    missing_entries = [req for req in required_entries if req not in exact_set]
+    if missing_entries:
+        nested = [p for p in normalized_paths if any(p.endswith(f"/{req}") for req in missing_entries)]
+        if nested:
+            violations.append(
+                f"NESTED_ROOT_INDEX: Entry file wrapped inside subdirectory ('{nested[0]}'); zip contents of build folder directly at archive root."
+            )
+        else:
+            violations.append(
+                f"MISSING_ROOT_ENTRY: Portal '{portal_key}' requires root {', '.join(required_entries)}."
+            )
+
+    total_mb = round(total_bytes / (1024 * 1024), 3)
+    max_single_mb = round(max_file_bytes / (1024 * 1024), 3)
+    limit_total_mb = float(preset["max_total_mb"])
+    limit_single_mb = float(preset["max_single_file_mb"])
+
+    if total_mb > limit_total_mb:
+        violations.append(
+            f"BUNDLE_SIZE_EXCEEDED: Archive size {total_mb:.2f}MB exceeds '{portal_key}' {limit_total_mb:.1f}MB limit."
+        )
+    if max_single_mb > limit_single_mb:
+        violations.append(
+            f"SINGLE_FILE_SIZE_EXCEEDED: File '{max_file_path}' ({max_single_mb:.2f}MB) exceeds '{portal_key}' {limit_single_mb:.1f}MB single-file limit."
+        )
+
+    for ref in manifest.get("referenced_assets") or []:
+        clean_ref = str(ref).strip().split("?", 1)[0].split("#", 1)[0]
+        if not clean_ref or clean_ref.startswith(("http://", "https://", "data:", "blob:")):
+            continue
+        norm_ref = clean_ref.replace("\\", "/").lstrip("./").lstrip("/")
+        if norm_ref not in exact_set:
+            if norm_ref.lower() in lower_map:
+                violations.append(
+                    f"CASE_MISMATCH_ASSET_REF: HTML/script references '{norm_ref}' but archive contains '{lower_map[norm_ref.lower()]}' (404 on Linux CDN)."
+                )
+            else:
+                violations.append(
+                    f"MISSING_REFERENCED_ASSET: Referenced asset '{norm_ref}' is absent from release archive."
+                )
+
+    requires_threads = bool(manifest.get("requires_threads", False))
+    if requires_threads and not bool(preset["supports_sab"]):
+        violations.append(
+            f"SHARED_ARRAY_BUFFER_PORTAL_INCOMPATIBLE: Portal '{portal_key}' does not guarantee COOP/COEP headers for multi-threaded WASM; use single-threaded Web export."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return WebGameArchiveReport(
+        passed=len(violations) == 0,
+        score=score,
+        portal=portal_key,
+        violations=violations,
+        metrics={
+            "file_count": len(normalized_paths),
+            "total_mb": total_mb,
+            "max_single_file_mb": max_single_mb,
+            "max_total_mb_limit": limit_total_mb,
+            "requires_threads": requires_threads,
+        },
+    )
+
+

@@ -7,13 +7,14 @@ quality gate, vertical video caption safe-zone inspector & six-segment storyboar
 prompt standardizer for AI Short-Drama & Game Studios.
 """
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 from .gates import (
     validate_episode_outline,
     calculate_storyboard_budget,
     export_capcut_timeline_manifest,
     inspect_webgame_bundle,
+    inspect_webgame_archive_manifest,
     inspect_audio_track_quality,
     inspect_caption_safe_zone,
     inspect_social_cover_card,
@@ -23,6 +24,7 @@ from .gates import (
     OutlineGateReport,
     BudgetEstimate,
     WebGameHealthReport,
+    WebGameArchiveReport,
     AudioGateReport,
     CaptionSafeZoneReport,
     SocialCoverReport,
@@ -35,6 +37,7 @@ from .gates import (
     REQUIRED_CHARACTER_VIEWS,
     MASTER_DELIVERY_TARGETS,
     MULTISHOT_SEGMENT_LIMITS,
+    WEBGAME_PORTAL_LIMITS,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -49,6 +52,7 @@ __all__ = [
     "calculate_storyboard_budget",
     "export_capcut_timeline_manifest",
     "inspect_webgame_bundle",
+    "inspect_webgame_archive_manifest",
     "inspect_audio_track_quality",
     "inspect_caption_safe_zone",
     "inspect_social_cover_card",
@@ -59,6 +63,7 @@ __all__ = [
     "OutlineGateReport",
     "BudgetEstimate",
     "WebGameHealthReport",
+    "WebGameArchiveReport",
     "AudioGateReport",
     "CaptionSafeZoneReport",
     "SocialCoverReport",
@@ -71,6 +76,7 @@ __all__ = [
     "REQUIRED_CHARACTER_VIEWS",
     "MASTER_DELIVERY_TARGETS",
     "MULTISHOT_SEGMENT_LIMITS",
+    "WEBGAME_PORTAL_LIMITS",
     "DEFAULT_NEGATIVE_PROMPT",
     "MODEL_STYLE_PRESETS",
 ]
