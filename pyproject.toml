@@ -9,7 +9,40 @@ description = "Deterministic AI Short-Drama Quality Gates, Six-Segment Storyboar
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
+authors = [
+    { name = "open-short-drama-studio maintainers" }
+]
+keywords = [
+    "short-drama",
+    "ai-video",
+    "storyboard",
+    "capcut",
+    "jianying",
+    "webgame",
+    "quality-gates"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/17671454333/open-short-drama-studio"
+Repository = "https://github.com/17671454333/open-short-drama-studio"
+Issues = "https://github.com/17671454333/open-short-drama-studio/issues"
+Changelog = "https://github.com/17671454333/open-short-drama-studio/releases"
 
 [project.scripts]
 drama-kit = "drama_kit.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["drama_kit*"]
