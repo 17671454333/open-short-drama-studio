@@ -1068,3 +1068,137 @@ def inspect_webgame_archive_manifest(
     )
 
 
+@dataclass
+class SubtitleAlignmentReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    cleaned_cues: List[Dict[str, Any]] = field(default_factory=list)
+
+
+SUBTITLE_ALIGNMENT_LIMITS: Dict[str, float] = {
+    "min_cue_duration_sec": 0.45,
+    "max_tts_sync_drift_sec": 0.25,
+    "max_overlap_tolerance_sec": 0.02,
+    "max_chars_per_sec": 6.5,
+}
+
+_TRAILING_SUBTITLE_PUNCT_PATTERN = re.compile(r"[，。、；,.;]+$")
+
+
+def inspect_tts_subtitle_alignment(
+    alignment: Dict[str, Any],
+) -> SubtitleAlignmentReport:
+    """
+    Deterministic TTS voiceover & subtitle timeline alignment gate for CapCut / JianYing short dramas:
+    1. Burned-in ghosting prevention: blocks overlay subtitle injection when raw AI video already contains
+       garbled burned-in subtitles (`has_burned_in_subtitles=True` without `crop_or_inpaint_applied=True`).
+    2. Timeline non-overlap: detects colliding cue windows (`start_sec < prev_end_sec - 0.02s`).
+    3. Anti-flash minimum duration: rejects micro-cues shorter than `0.45s`.
+    4. Voiceover word-level sync: checks `tts_start_sec` / `tts_end_sec` drift against subtitle window (`<= 0.25s`).
+    5. Vertical subtitle typography & pacing: flags trailing punctuation (`，。、；`) and burst speed (`> 6.5 chars/s`),
+       emitting normalized `cleaned_cues` ready for SRT/CapCut export.
+    """
+    violations: List[str] = []
+    has_burned = bool(alignment.get("has_burned_in_subtitles", False))
+    remediated = bool(alignment.get("crop_or_inpaint_applied", False))
+    if has_burned and not remediated:
+        violations.append(
+            "BURNED_IN_SUBTITLE_CONFLICT: Source AI video contains burned-in subtitles; crop/inpaint or regenerate clean plate before adding CapCut subtitle track."
+        )
+
+    raw_cues = alignment.get("cues") or []
+    if not isinstance(raw_cues, list) or len(raw_cues) == 0:
+        return SubtitleAlignmentReport(
+            passed=False,
+            score=0,
+            violations=violations + ["EMPTY_SUBTITLE_CUES: Subtitle alignment manifest contains no cues."],
+            metrics={"cue_count": 0, "max_drift_sec": 0.0, "overlap_count": 0},
+            cleaned_cues=[],
+        )
+
+    min_dur = float(SUBTITLE_ALIGNMENT_LIMITS["min_cue_duration_sec"])
+    max_drift = float(SUBTITLE_ALIGNMENT_LIMITS["max_tts_sync_drift_sec"])
+    overlap_tol = float(SUBTITLE_ALIGNMENT_LIMITS["max_overlap_tolerance_sec"])
+    max_cps = float(SUBTITLE_ALIGNMENT_LIMITS["max_chars_per_sec"])
+
+    prev_end = 0.0
+    overlap_count = 0
+    max_observed_drift = 0.0
+    trailing_punct_count = 0
+    cleaned_cues: List[Dict[str, Any]] = []
+
+    for idx, item in enumerate(raw_cues):
+        cue = item if isinstance(item, dict) else {}
+        cue_no = idx + 1
+        start_s = float(cue.get("start_sec", 0.0))
+        end_s = float(cue.get("end_sec", 0.0))
+        raw_text = str(cue.get("text") or "").strip()
+        dur_s = end_s - start_s
+
+        if idx > 0 and start_s < prev_end - overlap_tol:
+            overlap_count += 1
+            violations.append(
+                f"SUBTITLE_CUE_OVERLAP: Cue {cue_no} starts at {start_s:.2f}s before Cue {idx} ends at {prev_end:.2f}s."
+            )
+
+        if dur_s < min_dur:
+            violations.append(
+                f"SUBTITLE_FLASH_TOO_BRIEF: Cue {cue_no} duration {dur_s:.2f}s < {min_dur:.2f}s minimum readable window."
+            )
+
+        if "tts_start_sec" in cue or "tts_end_sec" in cue:
+            tts_start = float(cue.get("tts_start_sec", start_s))
+            tts_end = float(cue.get("tts_end_sec", end_s))
+            drift = max(abs(start_s - tts_start), abs(end_s - tts_end))
+            if drift > max_observed_drift:
+                max_observed_drift = drift
+            if drift > max_drift:
+                violations.append(
+                    f"TTS_AUDIO_SYNC_DRIFT: Cue {cue_no} drifts {drift:.2f}s from TTS voiceover window (limit {max_drift:.2f}s)."
+                )
+
+        if _TRAILING_SUBTITLE_PUNCT_PATTERN.search(raw_text):
+            trailing_punct_count += 1
+            violations.append(
+                f"TRAILING_PUNCTUATION_CLUTTER: Cue {cue_no} ends with redundant punctuation ('{raw_text}'); strip trailing comma/period for mobile vertical captions."
+            )
+
+        clean_text = _TRAILING_SUBTITLE_PUNCT_PATTERN.sub("", raw_text).strip()
+        spoken_len = len(re.sub(r"\s+", "", clean_text))
+        if dur_s > 0 and spoken_len > 0:
+            cps = spoken_len / dur_s
+            if cps > max_cps:
+                violations.append(
+                    f"SUBTITLE_CPS_OVERLOAD: Cue {cue_no} reading speed {cps:.2f} chars/s exceeds {max_cps:.1f} chars/s ceiling."
+                )
+
+        norm_start = round(max(start_s, prev_end), 3) if idx > 0 else round(max(0.0, start_s), 3)
+        norm_end = round(max(end_s, norm_start + min_dur), 3)
+        cleaned_cues.append(
+            {
+                "index": cue_no,
+                "start_sec": norm_start,
+                "end_sec": norm_end,
+                "text": clean_text,
+            }
+        )
+        prev_end = max(prev_end, end_s)
+
+    score = max(0, 100 - len(violations) * 20)
+    return SubtitleAlignmentReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "cue_count": len(raw_cues),
+            "overlap_count": overlap_count,
+            "max_drift_sec": round(max_observed_drift, 3),
+            "trailing_punct_count": trailing_punct_count,
+            "has_burned_in_subtitles": has_burned,
+        },
+        cleaned_cues=cleaned_cues,
+    )
+
+

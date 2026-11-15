@@ -13,6 +13,7 @@ from .gates import (
     inspect_character_anchor_pack,
     inspect_master_video_delivery,
     inspect_multishot_segment_cuts,
+    inspect_tts_subtitle_alignment,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -170,6 +171,28 @@ def main() -> None:
             portal="bilibili_toy",
         )
 
+        subtitle_align_report = inspect_tts_subtitle_alignment(
+            {
+                "has_burned_in_subtitles": False,
+                "cues": [
+                    {
+                        "start_sec": 3.50,
+                        "end_sec": 7.80,
+                        "tts_start_sec": 3.52,
+                        "tts_end_sec": 7.76,
+                        "text": "三十年河东，今日这把剑归我了！",
+                    },
+                    {
+                        "start_sec": 8.00,
+                        "end_sec": 11.60,
+                        "tts_start_sec": 8.04,
+                        "tts_end_sec": 11.55,
+                        "text": "你竟敢毁掉护宗大阵？",
+                    },
+                ],
+            }
+        )
+
         print(
             json.dumps(
                 {
@@ -233,6 +256,12 @@ def main() -> None:
                         "portal": archive_report.portal,
                         "violations": archive_report.violations,
                         "metrics": archive_report.metrics,
+                    },
+                    "tts_subtitle_alignment_gate": {
+                        "passed": subtitle_align_report.passed,
+                        "score": subtitle_align_report.score,
+                        "violations": subtitle_align_report.violations,
+                        "metrics": subtitle_align_report.metrics,
                     },
                 },
                 ensure_ascii=False,

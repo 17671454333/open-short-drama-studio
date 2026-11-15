@@ -50,6 +50,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
     - Deterministic pre-generation validator for MiniMax H3 `[Shot k]`, Seedance 2.0, and Omni Flash multi-cut segments: enforces `0.00s` master keyframe pinning, monotonic cut-point continuity, `[1.5s, 6.0s]` per-cut rhythm bounds, `<= 15.0s` single-pass duration ceiling, `<= 4` reference `Picture` slots, and `<= 4.8 chars/s` `<d>` lip-sync pacing.
 12. **📦 Multi-Portal WebGame ZIP Release Archive Gate (`inspect_webgame_archive_manifest`)**:
     - Pre-upload ZIP manifest auditor for **Bilibili Toy, Itch.io, CrazyGames, and WeChat Mini-Games**: blocks nested wrapper directories (`dist/index.html`), Windows backslash ZIP entries, `.env` / `.git` / `.map` artifact leaks, portal MB ceilings (`4MB` WeChat main package, `50MB` Toy), Linux CDN case-mismatch asset 404s, and incompatible `SharedArrayBuffer` threaded WASM builds.
+13. **🗣️ TTS Voiceover & Burned-In Subtitle Alignment Gate (`inspect_tts_subtitle_alignment`)**:
+    - Pre-synthesis subtitle & audio sync auditor for CapCut/JianYing pipelines: blocks double-subtitle ghosting on raw AI plates with burned-in text (`has_burned_in_subtitles`), detects overlapping cue windows, `< 0.45s` flash cues, `> 0.25s` TTS voiceover drift, trailing vertical-caption punctuation (`，。、；`), and `> 6.5 chars/s` burst speed while emitting sanitized `cleaned_cues`.
 
 ---
 

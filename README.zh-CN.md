@@ -39,6 +39,8 @@
     - 面向 MiniMax H3 `[Shot k]`、Seedance 2.0 与 Omni Flash 单次多镜生成，确定性校验主分镜图钉死 `0.00s`、切点时刻累加零漂移、单镜 `[1.5s, 6.0s]` 防闪烁/防长镜衰减、单段总长 `<= 15.0s` 防截断、单段参考图槽位 `<= 4` 张以及 `<d>` 台词口型语速 `<= 4.8 字/秒`。
 11. **📦 多平台网页游戏 ZIP 发行包结构与体积门禁 (`inspect_webgame_archive_manifest`)**：
     - 面向 **B站 Toy、Itch.io、CrazyGames 与微信小游戏** 上架前 ZIP 清单审计：拦截外层目录嵌套白屏（`dist/index.html`）、Windows 反斜杠 ZIP 条目、`.env` / `.git` / `.map` 敏感源码泄露、平台主包体积超限（如微信小游戏 `4MB` 硬顶）、Linux CDN 大小写敏感资源 404 以及无 COOP/COEP 头平台的 `SharedArrayBuffer` 多线程 WASM 兼容隐患。
+12. **🗣️ TTS 配音字音同步与硬烧双字幕防重影门禁 (`inspect_tts_subtitle_alignment`)**：
+    - 面向剪映/CapCut 成片合成前的字幕与配音对账：自动拦截 AI 裸片自带硬烧乱码字幕导致的双层重影（`BURNED_IN_SUBTITLE_CONFLICT`）、相邻字幕时间重叠踩踏、`< 0.45s` 闪帧字幕、TTS 起止时间漂移 `> 0.25s`、竖屏句尾冗余标点（`，。、；`）及 `> 6.5 字/秒` 超速抢拍，并同步输出去尾标点与时间轴归一化的 `cleaned_cues`。
 
 ---
 

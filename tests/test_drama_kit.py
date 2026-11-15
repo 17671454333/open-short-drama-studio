@@ -11,6 +11,7 @@ from drama_kit import (
     inspect_character_anchor_pack,
     inspect_master_video_delivery,
     inspect_multishot_segment_cuts,
+    inspect_tts_subtitle_alignment,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -521,6 +522,67 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertFalse(rep.passed)
         self.assertTrue(any("MISSING_ROOT_ENTRY" in v for v in rep.violations))
         self.assertTrue(any("BUNDLE_SIZE_EXCEEDED" in v for v in rep.violations))
+
+    def test_inspect_tts_subtitle_alignment_passes_clean_synced_cues(self):
+        rep = inspect_tts_subtitle_alignment(
+            {
+                "has_burned_in_subtitles": False,
+                "cues": [
+                    {
+                        "start_sec": 1.00,
+                        "end_sec": 3.80,
+                        "tts_start_sec": 1.05,
+                        "tts_end_sec": 3.72,
+                        "text": "三十年河东，今日这把剑归我了！",
+                    },
+                    {
+                        "start_sec": 4.00,
+                        "end_sec": 6.50,
+                        "tts_start_sec": 4.02,
+                        "tts_end_sec": 6.46,
+                        "text": "你竟敢毁掉护宗大阵？",
+                    },
+                ],
+            }
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(len(rep.cleaned_cues), 2)
+
+    def test_inspect_tts_subtitle_alignment_catches_burned_overlap_flash_drift_and_punct(self):
+        rep = inspect_tts_subtitle_alignment(
+            {
+                "has_burned_in_subtitles": True,
+                "crop_or_inpaint_applied": False,
+                "cues": [
+                    {
+                        "start_sec": 0.00,
+                        "end_sec": 0.25,
+                        "tts_start_sec": 0.00,
+                        "tts_end_sec": 0.90,
+                        "text": "短短零点二秒塞入超多字且末尾带句号。",
+                    },
+                    {
+                        "start_sec": 0.15,
+                        "end_sec": 2.00,
+                        "tts_start_sec": 0.20,
+                        "tts_end_sec": 1.98,
+                        "text": "正常第二句",
+                    },
+                ],
+            }
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("BURNED_IN_SUBTITLE_CONFLICT" in v for v in rep.violations))
+        self.assertTrue(any("SUBTITLE_FLASH_TOO_BRIEF" in v for v in rep.violations))
+        self.assertTrue(any("TTS_AUDIO_SYNC_DRIFT" in v for v in rep.violations))
+        self.assertTrue(any("TRAILING_PUNCTUATION_CLUTTER" in v for v in rep.violations))
+        self.assertTrue(any("SUBTITLE_CPS_OVERLOAD" in v for v in rep.violations))
+        self.assertTrue(any("SUBTITLE_CUE_OVERLAP" in v for v in rep.violations))
+        self.assertEqual(rep.cleaned_cues[0]["text"], "短短零点二秒塞入超多字且末尾带句号")
+        self.assertGreaterEqual(rep.cleaned_cues[1]["start_sec"], 0.25)
 
 
 if __name__ == "__main__":

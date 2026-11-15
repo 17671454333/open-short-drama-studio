@@ -7,7 +7,7 @@ quality gate, vertical video caption safe-zone inspector & six-segment storyboar
 prompt standardizer for AI Short-Drama & Game Studios.
 """
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 from .gates import (
     validate_episode_outline,
@@ -21,6 +21,7 @@ from .gates import (
     inspect_character_anchor_pack,
     inspect_master_video_delivery,
     inspect_multishot_segment_cuts,
+    inspect_tts_subtitle_alignment,
     OutlineGateReport,
     BudgetEstimate,
     WebGameHealthReport,
@@ -31,6 +32,7 @@ from .gates import (
     CharacterAnchorReport,
     MasterVideoDeliveryReport,
     MultiShotSegmentReport,
+    SubtitleAlignmentReport,
     STUDIO_BGM_LIBRARY_PRESETS,
     PLATFORM_SAFE_MARGINS,
     COVER_RATIO_PRESETS,
@@ -38,6 +40,7 @@ from .gates import (
     MASTER_DELIVERY_TARGETS,
     MULTISHOT_SEGMENT_LIMITS,
     WEBGAME_PORTAL_LIMITS,
+    SUBTITLE_ALIGNMENT_LIMITS,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -59,6 +62,7 @@ __all__ = [
     "inspect_character_anchor_pack",
     "inspect_master_video_delivery",
     "inspect_multishot_segment_cuts",
+    "inspect_tts_subtitle_alignment",
     "standardize_shot_prompt",
     "OutlineGateReport",
     "BudgetEstimate",
@@ -70,6 +74,7 @@ __all__ = [
     "CharacterAnchorReport",
     "MasterVideoDeliveryReport",
     "MultiShotSegmentReport",
+    "SubtitleAlignmentReport",
     "STUDIO_BGM_LIBRARY_PRESETS",
     "PLATFORM_SAFE_MARGINS",
     "COVER_RATIO_PRESETS",
@@ -77,6 +82,7 @@ __all__ = [
     "MASTER_DELIVERY_TARGETS",
     "MULTISHOT_SEGMENT_LIMITS",
     "WEBGAME_PORTAL_LIMITS",
+    "SUBTITLE_ALIGNMENT_LIMITS",
     "DEFAULT_NEGATIVE_PROMPT",
     "MODEL_STYLE_PRESETS",
 ]
