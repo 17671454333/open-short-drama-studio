@@ -12,6 +12,7 @@ from drama_kit import (
     inspect_master_video_delivery,
     inspect_multishot_segment_cuts,
     inspect_tts_subtitle_alignment,
+    inspect_scene_staging_plan,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -583,6 +584,87 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("SUBTITLE_CUE_OVERLAP" in v for v in rep.violations))
         self.assertEqual(rep.cleaned_cues[0]["text"], "短短零点二秒塞入超多字且末尾带句号")
         self.assertGreaterEqual(rep.cleaned_cues[1]["start_sec"], 0.25)
+
+    def test_inspect_scene_staging_plan_passes_clean_blocking(self):
+        rep = inspect_scene_staging_plan(
+            {
+                "anchors": [
+                    {"id": "jade_tea_table", "x": 0.50, "y": 0.52},
+                    {"id": "palace_pillar", "x": 0.28, "y": 0.30},
+                ],
+                "placements": [
+                    {
+                        "character": "Lin",
+                        "anchor_id": "jade_tea_table",
+                        "side": "south",
+                        "posture": "seated",
+                        "facing": "north",
+                    },
+                    {
+                        "character": "Elder",
+                        "anchor_id": "jade_tea_table",
+                        "side": "north",
+                        "posture": "standing",
+                        "facing": "south",
+                    },
+                ],
+                "camera_axis_locked": True,
+                "extras_count": 3,
+                "extras_zone": "rear courtyard colonnade",
+            },
+            expected_characters=["Lin", "Elder"],
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertIn("Opening blocking: Lin seated at south side of jade_tea_table facing north", rep.opening_blocking_line)
+        self.assertIn("(extras: 3 in rear courtyard colonnade).", rep.opening_blocking_line)
+
+    def test_inspect_scene_staging_plan_catches_collision_axis_crowding_and_cast_mismatch(self):
+        rep = inspect_scene_staging_plan(
+            {
+                "anchors": [
+                    {"id": "throne_desk", "x": 0.50, "y": 0.50},
+                    {"id": "side_brazier", "x": 0.53, "y": 0.50},
+                    {"id": "edge_window", "x": 0.99, "y": 0.02},
+                ],
+                "placements": [
+                    {
+                        "character": "Lin",
+                        "anchor_id": "throne_desk",
+                        "side": "south",
+                        "posture": "standing",
+                        "facing": "north",
+                    },
+                    {
+                        "character": "GhostExtra",
+                        "anchor_id": "throne_desk",
+                        "side": "south",
+                        "posture": "standing",
+                        "facing": "north",
+                    },
+                    {
+                        "character": "Guard",
+                        "anchor_id": "side_brazier",
+                        "side": "south",
+                        "posture": "kneeling",
+                        "facing": "west",
+                    },
+                ],
+                "camera_axis_locked": False,
+                "extras_count": 6,
+                "extras_zone": "",
+            },
+            expected_characters=["Lin", "Elder", "Guard"],
+        )
+        self.assertFalse(rep.passed)
+        self.assertTrue(any("ANCHOR_OUT_OF_BOUNDS" in v for v in rep.violations))
+        self.assertTrue(any("SAME_SIDE_COLLISION" in v for v in rep.violations))
+        self.assertTrue(any("PROXIMITY_CROWDING_RISK" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_SCRIPT_CHARACTER" in v for v in rep.violations))
+        self.assertTrue(any("UNDECLARED_BLOCKING_CHARACTER" in v for v in rep.violations))
+        self.assertTrue(any("CAMERA_AXIS_CROSSING_RISK" in v for v in rep.violations))
+        self.assertTrue(any("EXTRAS_ZONE_UNSPECIFIED" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

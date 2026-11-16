@@ -14,6 +14,7 @@ from .gates import (
     inspect_master_video_delivery,
     inspect_multishot_segment_cuts,
     inspect_tts_subtitle_alignment,
+    inspect_scene_staging_plan,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -193,6 +194,35 @@ def main() -> None:
             }
         )
 
+        staging_report = inspect_scene_staging_plan(
+            {
+                "anchors": [
+                    {"id": "altar_sword_pedestal", "x": 0.50, "y": 0.48},
+                    {"id": "fortress_pillared_gate", "x": 0.50, "y": 0.24},
+                ],
+                "placements": [
+                    {
+                        "character": "Lin",
+                        "anchor_id": "altar_sword_pedestal",
+                        "side": "south",
+                        "posture": "standing",
+                        "facing": "north",
+                    },
+                    {
+                        "character": "Elder",
+                        "anchor_id": "fortress_pillared_gate",
+                        "side": "south",
+                        "posture": "standing",
+                        "facing": "south",
+                    },
+                ],
+                "camera_axis_locked": True,
+                "extras_count": 4,
+                "extras_zone": "outer cliff stairway perimeter",
+            },
+            expected_characters=["Lin", "Elder"],
+        )
+
         print(
             json.dumps(
                 {
@@ -262,6 +292,13 @@ def main() -> None:
                         "score": subtitle_align_report.score,
                         "violations": subtitle_align_report.violations,
                         "metrics": subtitle_align_report.metrics,
+                    },
+                    "scene_staging_gate": {
+                        "passed": staging_report.passed,
+                        "score": staging_report.score,
+                        "violations": staging_report.violations,
+                        "metrics": staging_report.metrics,
+                        "opening_blocking_line": staging_report.opening_blocking_line,
                     },
                 },
                 ensure_ascii=False,

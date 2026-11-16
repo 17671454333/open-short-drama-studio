@@ -1202,3 +1202,188 @@ def inspect_tts_subtitle_alignment(
     )
 
 
+@dataclass
+class SceneStagingReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    opening_blocking_line: str = ""
+
+
+SCENE_STAGING_LIMITS: Dict[str, Any] = {
+    "min_anchors": 1,
+    "max_anchors": 12,
+    "min_coord": 0.05,
+    "max_coord": 0.95,
+    "min_character_spacing": 0.08,
+    "side_offset": 0.06,
+    "valid_sides": ("north", "south", "east", "west", "center", "left", "right"),
+    "valid_postures": ("standing", "seated", "kneeling", "prone"),
+}
+
+_SIDE_OFFSET_VECTORS: Dict[str, tuple[float, float]] = {
+    "north": (0.0, -0.06),
+    "south": (0.0, 0.06),
+    "west": (-0.06, 0.0),
+    "left": (-0.06, 0.0),
+    "east": (0.06, 0.0),
+    "right": (0.06, 0.0),
+    "center": (0.0, 0.0),
+}
+
+
+def inspect_scene_staging_plan(
+    staging: Dict[str, Any],
+    expected_characters: Optional[List[str]] = None,
+) -> SceneStagingReport:
+    """
+    Deterministic 2D top-down scene staging & 180-degree camera axis gate for AI short dramas:
+    1. Anchor geometry bounds: requires 1..12 interactive scene anchors within [0.05, 0.95] normalized floorplane.
+    2. Roster reconciliation: reconciles placed characters against `expected_characters` (no missing or undeclared actors).
+    3. Anti-morphing slot & spacing check: enforces valid anchor refs, sides, postures, blocks two characters occupying
+       the same `(anchor_id, side)` slot (`SAME_SIDE_COLLISION`), and flags `< 0.08` Euclidean crowding (`PROXIMITY_CROWDING_RISK`).
+    4. 180-degree axis & extras discipline: blocks unlocked camera axis reversals (`camera_axis_locked=False`) and
+       unspecified background zones when `extras_count > 0`.
+    5. Canonical opening blocking line: emits a deterministic English spatial prompt line for Shot 1 keyframe generation.
+    """
+    violations: List[str] = []
+    raw_anchors = staging.get("anchors") or []
+    raw_placements = staging.get("placements") or []
+
+    min_anc = int(SCENE_STAGING_LIMITS["min_anchors"])
+    max_anc = int(SCENE_STAGING_LIMITS["max_anchors"])
+    min_c = float(SCENE_STAGING_LIMITS["min_coord"])
+    max_c = float(SCENE_STAGING_LIMITS["max_coord"])
+    min_spacing = float(SCENE_STAGING_LIMITS["min_character_spacing"])
+    valid_sides = set(SCENE_STAGING_LIMITS["valid_sides"])
+    valid_postures = set(SCENE_STAGING_LIMITS["valid_postures"])
+
+    if not isinstance(raw_anchors, list) or not (min_anc <= len(raw_anchors) <= max_anc):
+        anc_len = len(raw_anchors) if isinstance(raw_anchors, list) else 0
+        violations.append(
+            f"ANCHOR_COUNT_OUT_OF_RANGE: Scene anchor count {anc_len} outside [{min_anc}, {max_anc}] interactive anchor budget."
+        )
+
+    anchor_map: Dict[str, tuple[float, float]] = {}
+    if isinstance(raw_anchors, list):
+        for anc in raw_anchors:
+            if not isinstance(anc, dict):
+                continue
+            aid = str(anc.get("id") or "").strip()
+            if not aid:
+                continue
+            ax = float(anc.get("x", 0.5))
+            ay = float(anc.get("y", 0.5))
+            anchor_map[aid] = (ax, ay)
+            if not (min_c <= ax <= max_c and min_c <= ay <= max_c):
+                violations.append(
+                    f"ANCHOR_OUT_OF_BOUNDS: Anchor '{aid}' at ({ax:.2f}, {ay:.2f}) falls outside [{min_c:.2f}, {max_c:.2f}] safe floorplane."
+                )
+
+    placed_chars: List[str] = []
+    seen_chars: set[str] = set()
+    occupied_slots: Dict[tuple[str, str], str] = {}
+    computed_positions: List[tuple[str, float, float, Optional[tuple[str, str]]]] = []
+    blocking_clauses: List[str] = []
+
+    if isinstance(raw_placements, list):
+        for item in raw_placements:
+            if not isinstance(item, dict):
+                continue
+            char_id = str(item.get("character") or "").strip()
+            anc_id = str(item.get("anchor_id") or "").strip()
+            side = str(item.get("side") or "center").strip().lower()
+            posture = str(item.get("posture") or "standing").strip().lower()
+            facing = str(item.get("facing") or "camera").strip()
+            if not char_id:
+                continue
+
+            if char_id in seen_chars:
+                violations.append(f"DUPLICATE_CHARACTER_PLACEMENT: Character '{char_id}' is placed multiple times in the same scene.")
+            else:
+                seen_chars.add(char_id)
+                placed_chars.append(char_id)
+
+            if side not in valid_sides:
+                violations.append(f"INVALID_ANCHOR_SIDE: Character '{char_id}' uses unsupported side '{side}'.")
+            if posture not in valid_postures:
+                violations.append(f"INVALID_POSTURE: Character '{char_id}' uses unsupported posture '{posture}'.")
+
+            slot_key: Optional[tuple[str, str]] = None
+            if anc_id not in anchor_map:
+                violations.append(f"UNKNOWN_ANCHOR_REF: Character '{char_id}' references undeclared anchor '{anc_id}'.")
+            else:
+                slot_key = (anc_id, side)
+                if slot_key in occupied_slots:
+                    other = occupied_slots[slot_key]
+                    violations.append(
+                        f"SAME_SIDE_COLLISION: '{char_id}' and '{other}' both occupy '{side}' side of anchor '{anc_id}' (limb-morphing risk)."
+                    )
+                else:
+                    occupied_slots[slot_key] = char_id
+
+                base_x, base_y = anchor_map[anc_id]
+                dx, dy = _SIDE_OFFSET_VECTORS.get(side, (0.0, 0.0))
+                px = float(item.get("x", base_x + dx))
+                py = float(item.get("y", base_y + dy))
+                computed_positions.append((char_id, px, py, slot_key))
+
+            blocking_clauses.append(f"{char_id} {posture} at {side} side of {anc_id or 'stage'} facing {facing}")
+
+    if expected_characters is not None:
+        expected_set = {str(c).strip() for c in expected_characters if str(c).strip()}
+        for req_c in sorted(expected_set - seen_chars):
+            violations.append(f"MISSING_SCRIPT_CHARACTER: Script character '{req_c}' has no opening floorplane placement.")
+        for extra_c in sorted(seen_chars - expected_set):
+            violations.append(f"UNDECLARED_BLOCKING_CHARACTER: Placed character '{extra_c}' does not appear in scene cast.")
+
+    crowding_pairs = 0
+    for i in range(len(computed_positions)):
+        c1, x1, y1, s1 = computed_positions[i]
+        for j in range(i + 1, len(computed_positions)):
+            c2, x2, y2, s2 = computed_positions[j]
+            if s1 is not None and s1 == s2:
+                continue
+            dist = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+            if dist < min_spacing:
+                crowding_pairs += 1
+                violations.append(
+                    f"PROXIMITY_CROWDING_RISK: '{c1}' and '{c2}' floorplane distance {dist:.3f} < {min_spacing:.2f} minimum anti-merge spacing."
+                )
+
+    axis_locked = bool(staging.get("camera_axis_locked", True))
+    if not axis_locked:
+        violations.append(
+            "CAMERA_AXIS_CROSSING_RISK: 180-degree camera line of action is unlocked; eye-line direction will flip across reverse cuts."
+        )
+
+    extras_count = int(staging.get("extras_count", 0) or 0)
+    extras_zone = str(staging.get("extras_zone") or "").strip()
+    if extras_count > 0 and not extras_zone:
+        violations.append(
+            f"EXTRAS_ZONE_UNSPECIFIED: Scene includes {extras_count} extras without a bounded `extras_zone` (foreground occlusion risk)."
+        )
+
+    if blocking_clauses:
+        suffix = f" (extras: {extras_count} in {extras_zone})" if (extras_count > 0 and extras_zone) else ""
+        opening_line = f"Opening blocking: {'; '.join(blocking_clauses)}{suffix}."
+    else:
+        opening_line = ""
+
+    score = max(0, 100 - len(violations) * 20)
+    return SceneStagingReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "anchor_count": len(anchor_map),
+            "character_count": len(placed_chars),
+            "crowding_pair_count": crowding_pairs,
+            "extras_count": extras_count,
+            "camera_axis_locked": axis_locked,
+        },
+        opening_blocking_line=opening_line,
+    )
+
+
