@@ -54,6 +54,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
     - Pre-synthesis subtitle & audio sync auditor for CapCut/JianYing pipelines: blocks double-subtitle ghosting on raw AI plates with burned-in text (`has_burned_in_subtitles`), detects overlapping cue windows, `< 0.45s` flash cues, `> 0.25s` TTS voiceover drift, trailing vertical-caption punctuation (`，。、；`), and `> 6.5 chars/s` burst speed while emitting sanitized `cleaned_cues`.
 14. **🧭 2D Top-Down Scene Staging & 180-Degree Axis Gate (`inspect_scene_staging_plan`)**:
     - Spatial blocking & anti-morphing auditor prior to storyboard keyframing: validates `[0.05, 0.95]` floorplane anchor coordinates, reconciles placed actors against script cast (`expected_characters`), blocks same-side slot collisions (`SAME_SIDE_COLLISION`) and `< 0.08` crowding (`PROXIMITY_CROWDING_RISK`), enforces 180-degree camera line-of-action locking and bounded `extras_zone` placement, and emits canonical `opening_blocking_line` prompts.
+15. **🏛️ Empty-Plate Scene & Cutout Prop Art Bible Gate (`inspect_scene_prop_bible`)**:
+    - Pre-generation environment & narrative prop consistency auditor: enforces `[3, 5]` invariant spatial visual anchors per scene, blocks human/crowd contamination in `empty_plate_prompt` (preventing frozen background ghost figures), blocks hand/grip limb artifacts on prop cutouts while requiring isolated pure-white backgrounds and `[0.5, 500.0]` cm physical scale references, and reconciles episode `(scene_id, lighting)` and `(prop_id, state)` dependencies.
 
 ---
 

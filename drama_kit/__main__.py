@@ -15,6 +15,7 @@ from .gates import (
     inspect_multishot_segment_cuts,
     inspect_tts_subtitle_alignment,
     inspect_scene_staging_plan,
+    inspect_scene_prop_bible,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -223,6 +224,40 @@ def main() -> None:
             expected_characters=["Lin", "Elder"],
         )
 
+        art_bible_report = inspect_scene_prop_bible(
+            {
+                "scenes": [
+                    {
+                        "id": "cliff_fortress",
+                        "visual_anchors": [
+                            "broken obsidian sword altar",
+                            "twin dragon stone pillars",
+                            "iron chain suspension bridge",
+                            "jagged basalt cliff edge",
+                        ],
+                        "empty_plate_prompt": "Wide architectural establishing shot of ruined cliffside obsidian fortress, twin dragon stone pillars, broken sword altar, uninhabited, no people, cinematic 8k",
+                        "lighting_variants": {
+                            "stormy_dusk": "dark storm clouds, lightning rim light, wet basalt reflections",
+                            "blood_moon": "crimson moonlight through fog, cold cyan shadows",
+                        },
+                    }
+                ],
+                "props": [
+                    {
+                        "id": "ancient_rune_sword",
+                        "prompt": "Ancient obsidian broadsword etched with glowing silver phoenix runes, no hands, unheld, isolated on pure white background, studio product lighting",
+                        "scale_cm": 118.0,
+                        "state_variants": {
+                            "intact": "blade gleaming with unbroken silver rune circuit",
+                            "shattered": "cracked obsidian blade with fractured glowing shards",
+                        },
+                    }
+                ],
+            },
+            required_scene_usages=[{"scene_id": "cliff_fortress", "lighting": "stormy_dusk"}],
+            required_prop_usages=[{"prop_id": "ancient_rune_sword", "state": "intact"}],
+        )
+
         print(
             json.dumps(
                 {
@@ -299,6 +334,12 @@ def main() -> None:
                         "violations": staging_report.violations,
                         "metrics": staging_report.metrics,
                         "opening_blocking_line": staging_report.opening_blocking_line,
+                    },
+                    "scene_prop_bible_gate": {
+                        "passed": art_bible_report.passed,
+                        "score": art_bible_report.score,
+                        "violations": art_bible_report.violations,
+                        "metrics": art_bible_report.metrics,
                     },
                 },
                 ensure_ascii=False,

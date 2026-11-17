@@ -13,6 +13,7 @@ from drama_kit import (
     inspect_multishot_segment_cuts,
     inspect_tts_subtitle_alignment,
     inspect_scene_staging_plan,
+    inspect_scene_prop_bible,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -665,6 +666,87 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("UNDECLARED_BLOCKING_CHARACTER" in v for v in rep.violations))
         self.assertTrue(any("CAMERA_AXIS_CROSSING_RISK" in v for v in rep.violations))
         self.assertTrue(any("EXTRAS_ZONE_UNSPECIFIED" in v for v in rep.violations))
+
+    def test_inspect_scene_prop_bible_passes_clean_empty_plate_and_isolated_prop(self):
+        rep = inspect_scene_prop_bible(
+            {
+                "scenes": [
+                    {
+                        "id": "imperial_study",
+                        "visual_anchors": [
+                            "carved rosewood desk",
+                            "bronze crane incense burner",
+                            "lattice moon window",
+                            "hanging calligraphy scroll",
+                        ],
+                        "empty_plate_prompt": "Interior architectural wide shot of classical imperial study, bronze incense burner, rosewood desk, uninhabited, no people, 8k photorealistic",
+                        "lighting_variants": {
+                            "candle_night": "warm flickering candlelight with deep indigo window shadows",
+                            "morning_mist": "soft diffused cool daylight through paper lattice",
+                        },
+                    }
+                ],
+                "props": [
+                    {
+                        "id": "tiger_tally_seal",
+                        "prompt": "Ancient split bronze tiger tally military seal with patina, no hands, unheld, isolated on pure white background",
+                        "scale_cm": 9.5,
+                        "state_variants": {
+                            "left_half": "single left half of split bronze tiger seal",
+                            "reunited": "interlocked full bronze tiger tally glowing gold",
+                        },
+                    }
+                ],
+            },
+            required_scene_usages=[{"scene_id": "imperial_study", "lighting": "candle_night"}],
+            required_prop_usages=[{"prop_id": "tiger_tally_seal", "state": "left_half"}],
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["scene_count"], 1)
+        self.assertEqual(rep.metrics["prop_count"], 1)
+
+    def test_inspect_scene_prop_bible_catches_actor_hand_scale_and_variant_traps(self):
+        rep = inspect_scene_prop_bible(
+            {
+                "scenes": [
+                    {
+                        "id": "market_street",
+                        "visual_anchors": ["red lantern"],
+                        "empty_plate_prompt": "Busy ancient street with crowd of villagers and guards walking",
+                        "lighting_variants": {"day": "bright sunlight"},
+                    }
+                ],
+                "props": [
+                    {
+                        "id": "jade_pendant",
+                        "prompt": "Close-up of warrior hand holding glowing green jade pendant over dark stone table",
+                        "scale_cm": 0.0,
+                        "state_variants": ["intact"],
+                    }
+                ],
+            },
+            required_scene_usages=[
+                {"scene_id": "market_street", "lighting": "midnight_rain"},
+                {"scene_id": "missing_palace", "lighting": "day"},
+            ],
+            required_prop_usages=[
+                {"prop_id": "jade_pendant", "state": "cracked"},
+                {"prop_id": "missing_dagger", "state": "bloodied"},
+            ],
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("SCENE_ANCHOR_BUDGET_OUT_OF_RANGE" in v for v in rep.violations))
+        self.assertTrue(any("SCENE_EMPTY_PLATE_ACTOR_CONTAMINATION" in v for v in rep.violations))
+        self.assertTrue(any("PROP_HAND_CONTAMINATION" in v for v in rep.violations))
+        self.assertTrue(any("PROP_NON_ISOLATED_BACKGROUND" in v for v in rep.violations))
+        self.assertTrue(any("PROP_SCALE_REFERENCE_INVALID" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_SCENE_LIGHTING_VARIANT" in v for v in rep.violations))
+        self.assertTrue(any("UNDECLARED_SCRIPT_SCENE" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_PROP_STATE_VARIANT" in v for v in rep.violations))
+        self.assertTrue(any("UNDECLARED_SCRIPT_PROP" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

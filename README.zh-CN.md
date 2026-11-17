@@ -43,6 +43,8 @@
     - 面向剪映/CapCut 成片合成前的字幕与配音对账：自动拦截 AI 裸片自带硬烧乱码字幕导致的双层重影（`BURNED_IN_SUBTITLE_CONFLICT`）、相邻字幕时间重叠踩踏、`< 0.45s` 闪帧字幕、TTS 起止时间漂移 `> 0.25s`、竖屏句尾冗余标点（`，。、；`）及 `> 6.5 字/秒` 超速抢拍，并同步输出去尾标点与时间轴归一化的 `cleaned_cues`。
 13. **🧭 2D 俯视站位调度与 180° 轴线防穿模门禁 (`inspect_scene_staging_plan`)**：
     - 面向分镜生图前的空间走位确定性对账：校验 `[0.05, 0.95]` 俯视安全平面锚点坐标、双向核对在场演员与剧本角色表（杜绝漏排说话人或混入幽灵人物）、拦截同一锚点同侧叠人穿模（`SAME_SIDE_COLLISION`）与 `< 0.08` 贴脸融合风险（`PROXIMITY_CROWDING_RISK`）、强制锁定 180° 摄影机轴线与群演分区（`extras_zone`），并确定性生成英文首镜走位句 `opening_blocking_line`。
+14. **🏛️ 场景空景锚点与白底无手道具设定集门禁 (`inspect_scene_prop_bible`)**：
+    - 面向美术设定集与下游垫图一致性的确定性审计：强制每个场景具备 `[3, 5]` 个跨集不变视觉锚点、拦截场景空景提示词混入路人/角色（`SCENE_EMPTY_PLATE_ACTOR_CONTAMINATION`，杜绝垫图假人叠影）、拦截叙事道具提示词带手握持（`PROP_HAND_CONTAMINATION`）或非纯白底不可抠图（`PROP_NON_ISOLATED_BACKGROUND`）及缺失 `[0.5, 500.0]` cm 物理尺度参照，并双向对账剧本所需的场景光照变体与道具状态变体。
 
 ---
 

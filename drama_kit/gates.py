@@ -1387,3 +1387,181 @@ def inspect_scene_staging_plan(
     )
 
 
+@dataclass
+class ScenePropBibleReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+SCENE_PROP_BIBLE_LIMITS: Dict[str, Any] = {
+    "min_visual_anchors": 3,
+    "max_visual_anchors": 5,
+    "min_scene_prompt_chars": 15,
+    "min_prop_scale_cm": 0.5,
+    "max_prop_scale_cm": 500.0,
+}
+
+_SAFE_EMPTY_PEOPLE_NEGATIONS = re.compile(
+    r"(?i)\b(?:no\s+(?:people|humans?|characters?|crowds?|pedestrians?|actors?|figures?)|"
+    r"without\s+(?:people|humans?|characters?|crowds?)|"
+    r"empty\s+of\s+people|uninhabited|nobody)\b"
+)
+
+_ACTOR_CONTAMINATION_PATTERN = re.compile(
+    r"(?i)\b(?:person|people|man|woman|boy|girl|warrior|swordsman|crowd|pedestrians?|actor|protagonist|villagers?|guards?)\b"
+)
+
+_SAFE_HAND_NEGATIONS = re.compile(
+    r"(?i)\b(?:no\s+(?:hands?|fingers?|human\s+hands?|arms?)|without\s+(?:hands?|fingers?)|unheld)\b"
+)
+
+_PROP_HAND_CONTAMINATION_PATTERN = re.compile(
+    r"(?i)\b(?:hand|hands|holding|gripped\s+by|fingers?|palm|wrist|fist)\b"
+)
+
+_PROP_ISOLATED_WHITE_BG_PATTERN = re.compile(
+    r"(?i)(?:white\s+background|isolated\s+on\s+(?:pure\s+)?white|#ffffff|white\s+studio\s+backdrop)"
+)
+
+
+def inspect_scene_prop_bible(
+    bible: Dict[str, Any],
+    required_scene_usages: Optional[List[Dict[str, Any]]] = None,
+    required_prop_usages: Optional[List[Dict[str, Any]]] = None,
+) -> ScenePropBibleReport:
+    """
+    Deterministic scene environment & narrative prop bible gate for AI short dramas:
+    1. Scene visual anchor budget: enforces 3..5 invariant spatial anchors per scene (`SCENE_ANCHOR_BUDGET_OUT_OF_RANGE`).
+    2. Empty-plate discipline: blocks human/crowd terms in `empty_plate_prompt` (`SCENE_EMPTY_PLATE_ACTOR_CONTAMINATION`)
+       while permitting explicit negations (`no people`, `uninhabited`) so background plates never ghost-merge with actors.
+    3. Prop cutout & physical scale gate: blocks hands/grip artifacts (`PROP_HAND_CONTAMINATION`), enforces isolated
+       pure-white background prompts (`PROP_NON_ISOLATED_BACKGROUND`), and checks `[0.5, 500.0]` cm physical scale (`PROP_SCALE_REFERENCE_INVALID`).
+    4. Upstream script reconciliation: verifies every `(scene_id, lighting)` and `(prop_id, state)` referenced by episodes.
+    """
+    violations: List[str] = []
+    raw_scenes = bible.get("scenes") or []
+    raw_props = bible.get("props") or []
+
+    min_anc = int(SCENE_PROP_BIBLE_LIMITS["min_visual_anchors"])
+    max_anc = int(SCENE_PROP_BIBLE_LIMITS["max_visual_anchors"])
+    min_prompt_len = int(SCENE_PROP_BIBLE_LIMITS["min_scene_prompt_chars"])
+    min_scale = float(SCENE_PROP_BIBLE_LIMITS["min_prop_scale_cm"])
+    max_scale = float(SCENE_PROP_BIBLE_LIMITS["max_prop_scale_cm"])
+
+    scene_variants_map: Dict[str, set[str]] = {}
+    contaminated_scenes = 0
+    if isinstance(raw_scenes, list):
+        for sc in raw_scenes:
+            if not isinstance(sc, dict):
+                continue
+            sid = str(sc.get("id") or "").strip()
+            if not sid:
+                continue
+            anchors = [str(a).strip() for a in (sc.get("visual_anchors") or []) if str(a).strip()]
+            if not (min_anc <= len(anchors) <= max_anc):
+                violations.append(
+                    f"SCENE_ANCHOR_BUDGET_OUT_OF_RANGE: Scene '{sid}' defines {len(anchors)} visual anchor(s); expected [{min_anc}, {max_anc}]."
+                )
+
+            prompt = str(sc.get("empty_plate_prompt") or "").strip()
+            if len(prompt) < min_prompt_len:
+                violations.append(
+                    f"SCENE_PROMPT_TOO_SHORT: Scene '{sid}' empty_plate_prompt length {len(prompt)} < {min_prompt_len} chars."
+                )
+            else:
+                scrubbed_prompt = _SAFE_EMPTY_PEOPLE_NEGATIONS.sub(" ", prompt)
+                if _ACTOR_CONTAMINATION_PATTERN.search(scrubbed_prompt):
+                    contaminated_scenes += 1
+                    violations.append(
+                        f"SCENE_EMPTY_PLATE_ACTOR_CONTAMINATION: Scene '{sid}' empty_plate_prompt contains actor/crowd subject terms."
+                    )
+
+            raw_lv = sc.get("lighting_variants") or {}
+            if isinstance(raw_lv, dict):
+                l_keys = {str(k).strip().lower() for k, v in raw_lv.items() if str(k).strip() and str(v).strip()}
+            elif isinstance(raw_lv, list):
+                l_keys = {str(k).strip().lower() for k in raw_lv if str(k).strip()}
+            else:
+                l_keys = set()
+            scene_variants_map[sid] = l_keys
+
+    prop_states_map: Dict[str, set[str]] = {}
+    contaminated_props = 0
+    if isinstance(raw_props, list):
+        for pr in raw_props:
+            if not isinstance(pr, dict):
+                continue
+            pid = str(pr.get("id") or "").strip()
+            if not pid:
+                continue
+            p_prompt = str(pr.get("prompt") or "").strip()
+            scrubbed_prop = _SAFE_HAND_NEGATIONS.sub(" ", p_prompt)
+            if _PROP_HAND_CONTAMINATION_PATTERN.search(scrubbed_prop):
+                contaminated_props += 1
+                violations.append(
+                    f"PROP_HAND_CONTAMINATION: Prop '{pid}' prompt includes hand/grip terms (causes cutout limb artifacts)."
+                )
+            if not _PROP_ISOLATED_WHITE_BG_PATTERN.search(p_prompt):
+                violations.append(
+                    f"PROP_NON_ISOLATED_BACKGROUND: Prop '{pid}' prompt must specify an isolated pure white background for clean matting."
+                )
+
+            raw_scale = pr.get("scale_cm")
+            if not isinstance(raw_scale, (int, float)) or isinstance(raw_scale, bool) or not (min_scale <= float(raw_scale) <= max_scale):
+                violations.append(
+                    f"PROP_SCALE_REFERENCE_INVALID: Prop '{pid}' scale_cm={raw_scale!r} outside [{min_scale}, {max_scale}] cm physical bounds."
+                )
+
+            raw_sv = pr.get("state_variants") or {}
+            if isinstance(raw_sv, dict):
+                s_keys = {str(k).strip().lower() for k, v in raw_sv.items() if str(k).strip() and str(v).strip()}
+            elif isinstance(raw_sv, list):
+                s_keys = {str(k).strip().lower() for k in raw_sv if str(k).strip()}
+            else:
+                s_keys = set()
+            prop_states_map[pid] = s_keys
+
+    for usage in required_scene_usages or []:
+        if not isinstance(usage, dict):
+            continue
+        req_sid = str(usage.get("scene_id") or "").strip()
+        req_light = str(usage.get("lighting") or "").strip().lower()
+        if not req_sid:
+            continue
+        if req_sid not in scene_variants_map:
+            violations.append(f"UNDECLARED_SCRIPT_SCENE: Script references scene '{req_sid}' missing from art bible.")
+        elif req_light and req_light not in scene_variants_map[req_sid]:
+            violations.append(
+                f"MISSING_SCENE_LIGHTING_VARIANT: Scene '{req_sid}' lacks required '{req_light}' lighting variant."
+            )
+
+    for p_usage in required_prop_usages or []:
+        if not isinstance(p_usage, dict):
+            continue
+        req_pid = str(p_usage.get("prop_id") or "").strip()
+        req_state = str(p_usage.get("state") or "").strip().lower()
+        if not req_pid:
+            continue
+        if req_pid not in prop_states_map:
+            violations.append(f"UNDECLARED_SCRIPT_PROP: Script references prop '{req_pid}' missing from art bible.")
+        elif req_state and req_state not in prop_states_map[req_pid]:
+            violations.append(
+                f"MISSING_PROP_STATE_VARIANT: Prop '{req_pid}' lacks required '{req_state}' state variant."
+            )
+
+    score = max(0, 100 - len(violations) * 20)
+    return ScenePropBibleReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "scene_count": len(scene_variants_map),
+            "prop_count": len(prop_states_map),
+            "contaminated_scene_count": contaminated_scenes,
+            "contaminated_prop_count": contaminated_props,
+        },
+    )
+
+
