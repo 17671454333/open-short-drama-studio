@@ -16,6 +16,7 @@ from .gates import (
     inspect_tts_subtitle_alignment,
     inspect_scene_staging_plan,
     inspect_scene_prop_bible,
+    inspect_series_paywall_pacing,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -258,6 +259,23 @@ def main() -> None:
             required_prop_usages=[{"prop_id": "ancient_rune_sword", "state": "intact"}],
         )
 
+        series_pacing_report = inspect_series_paywall_pacing(
+            {
+                "target_episode_sec": 90.0,
+                "paywall_episode": 6,
+                "lead_characters": ["Lin", "Elder"],
+                "primary_scenes": ["cliff_fortress", "imperial_study", "sect_arena"],
+                "episodes": [
+                    {"ep": 1, "has_payoff": True, "cliffhanger_grade": 8.5, "duration_sec": 88.0},
+                    {"ep": 2, "has_payoff": False, "cliffhanger_grade": 7.5, "duration_sec": 92.0},
+                    {"ep": 3, "has_payoff": True, "cliffhanger_grade": 8.0, "duration_sec": 85.0},
+                    {"ep": 4, "has_payoff": False, "cliffhanger_grade": 7.2, "duration_sec": 90.0},
+                    {"ep": 5, "has_payoff": True, "cliffhanger_grade": 8.4, "duration_sec": 94.0},
+                    {"ep": 6, "has_payoff": False, "cliffhanger_grade": 9.2, "duration_sec": 96.0, "is_paywall": True},
+                ],
+            }
+        )
+
         print(
             json.dumps(
                 {
@@ -340,6 +358,12 @@ def main() -> None:
                         "score": art_bible_report.score,
                         "violations": art_bible_report.violations,
                         "metrics": art_bible_report.metrics,
+                    },
+                    "series_paywall_pacing_gate": {
+                        "passed": series_pacing_report.passed,
+                        "score": series_pacing_report.score,
+                        "violations": series_pacing_report.violations,
+                        "metrics": series_pacing_report.metrics,
                     },
                 },
                 ensure_ascii=False,

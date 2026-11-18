@@ -56,6 +56,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
     - Spatial blocking & anti-morphing auditor prior to storyboard keyframing: validates `[0.05, 0.95]` floorplane anchor coordinates, reconciles placed actors against script cast (`expected_characters`), blocks same-side slot collisions (`SAME_SIDE_COLLISION`) and `< 0.08` crowding (`PROXIMITY_CROWDING_RISK`), enforces 180-degree camera line-of-action locking and bounded `extras_zone` placement, and emits canonical `opening_blocking_line` prompts.
 15. **🏛️ Empty-Plate Scene & Cutout Prop Art Bible Gate (`inspect_scene_prop_bible`)**:
     - Pre-generation environment & narrative prop consistency auditor: enforces `[3, 5]` invariant spatial visual anchors per scene, blocks human/crowd contamination in `empty_plate_prompt` (preventing frozen background ghost figures), blocks hand/grip limb artifacts on prop cutouts while requiring isolated pure-white backgrounds and `[0.5, 500.0]` cm physical scale references, and reconciles episode `(scene_id, lighting)` and `(prop_id, state)` dependencies.
+16. **📈 Cross-Episode Series Paywall & Climax Pacing Gate (`inspect_series_paywall_pacing`)**:
+    - Season-level retention & monetization auditor: enforces Golden 3-Episode Opening payoff delivery (`Ep 1..3`), blocks `> 3` consecutive climax-drought episodes (`PAYOFF_DROUGHT_GAP_EXCEEDED`), validates paywall conversion episodes (`cliffhanger_grade >= 8.0`, pre-paywall escalation on `Ep N-1`, zero premature arc resolution), enforces `target_episode_sec ± 15%` duration corridors, and caps lead cast (`<= 3`) and dynamic primary location sprawl.
 
 ---
 

@@ -14,6 +14,7 @@ from drama_kit import (
     inspect_tts_subtitle_alignment,
     inspect_scene_staging_plan,
     inspect_scene_prop_bible,
+    inspect_series_paywall_pacing,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -747,6 +748,63 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("UNDECLARED_SCRIPT_SCENE" in v for v in rep.violations))
         self.assertTrue(any("MISSING_PROP_STATE_VARIANT" in v for v in rep.violations))
         self.assertTrue(any("UNDECLARED_SCRIPT_PROP" in v for v in rep.violations))
+
+    def test_inspect_series_paywall_pacing_passes_well_paced_arc(self):
+        rep = inspect_series_paywall_pacing(
+            {
+                "target_episode_sec": 90.0,
+                "paywall_episode": 6,
+                "lead_characters": ["Lin", "Su", "Elder"],
+                "primary_scenes": ["cliff_fortress", "imperial_study", "jade_pavilion"],
+                "episodes": [
+                    {"ep": 1, "payoff_score": 8.5, "cliffhanger_grade": 8.5, "duration_sec": 86.0},
+                    {"ep": 2, "has_payoff": False, "cliffhanger_grade": 7.5, "duration_sec": 90.0},
+                    {"ep": 3, "has_payoff": True, "cliffhanger_grade": 8.2, "duration_sec": 95.0},
+                    {"ep": 4, "has_payoff": False, "cliffhanger_grade": 7.2, "duration_sec": 88.0},
+                    {"ep": 5, "has_payoff": True, "cliffhanger_grade": 8.6, "duration_sec": 92.0},
+                    {"ep": 6, "has_payoff": False, "cliffhanger_grade": 9.4, "duration_sec": 98.0, "is_paywall": True},
+                ],
+            }
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["episode_count"], 6)
+        self.assertEqual(rep.metrics["payoff_count"], 3)
+        self.assertEqual(rep.metrics["max_payoff_gap"], 1)
+
+    def test_inspect_series_paywall_pacing_catches_drought_paywall_duration_and_budget_traps(self):
+        rep = inspect_series_paywall_pacing(
+            {
+                "target_episode_sec": 90.0,
+                "lead_characters": ["Lin", "Su", "Elder", "Prince"],
+                "primary_scenes": ["s1", "s2", "s3", "s4", "s5", "s6"],
+                "episodes": [
+                    {"ep": 1, "has_payoff": False, "cliffhanger_grade": 6.0, "duration_sec": 42.0},
+                    {"ep": 2, "has_payoff": False, "cliffhanger_grade": 5.5, "duration_sec": 88.0},
+                    {"ep": 3, "has_payoff": False, "cliffhanger_grade": 6.0, "duration_sec": 90.0},
+                    {"ep": 4, "has_payoff": False, "cliffhanger_grade": 5.0, "duration_sec": 90.0},
+                    {
+                        "ep": 5,
+                        "has_payoff": True,
+                        "cliffhanger_grade": 6.5,
+                        "duration_sec": 90.0,
+                        "is_paywall": True,
+                        "premature_resolution": True,
+                    },
+                ],
+            }
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("GOLDEN_OPENING_PAYOFF_MISSING" in v for v in rep.violations))
+        self.assertTrue(any("PAYOFF_DROUGHT_GAP_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("EPISODE_DURATION_OUT_OF_CORRIDOR" in v for v in rep.violations))
+        self.assertTrue(any("PAYWALL_EPISODE_WEAK_HOOK" in v for v in rep.violations))
+        self.assertTrue(any("PAYWALL_PREMATURE_RESOLUTION" in v for v in rep.violations))
+        self.assertTrue(any("PAYWALL_MISSING_PRE_ESCALATION" in v for v in rep.violations))
+        self.assertTrue(any("LEAD_CAST_BUDGET_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("MAIN_LOCATION_BUDGET_EXCEEDED" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

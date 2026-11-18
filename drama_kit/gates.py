@@ -1565,3 +1565,165 @@ def inspect_scene_prop_bible(
     )
 
 
+@dataclass
+class SeriesPaywallPacingReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+SERIES_PACING_LIMITS: Dict[str, Any] = {
+    "max_payoff_gap": 3,
+    "min_payoff_score": 7.0,
+    "min_paywall_hook_grade": 8.0,
+    "min_pre_paywall_grade": 7.0,
+    "max_lead_characters": 3,
+    "default_target_duration_sec": 90.0,
+    "duration_tolerance_ratio": 0.15,
+}
+
+
+def inspect_series_paywall_pacing(series_plan: Dict[str, Any]) -> SeriesPaywallPacingReport:
+    """
+    Deterministic cross-episode series arc, climax cadence & paywall conversion gate:
+    1. Golden 3-episode opening retention: requires >= 1 core payoff (`has_payoff=True` or
+       `payoff_score >= 7.0`) within Episodes 1..3 (`GOLDEN_OPENING_PAYOFF_MISSING`).
+    2. Anti-churn climax cadence: blocks > 3 consecutive episodes without a payoff
+       (`PAYOFF_DROUGHT_GAP_EXCEEDED`).
+    3. Paywall conversion discipline: requires `cliffhanger_grade >= 8.0` on paywall episode(s)
+       (`PAYWALL_EPISODE_WEAK_HOOK`), blocks resolving the core arc conflict on the free-to-paid
+       boundary (`PAYWALL_PREMATURE_RESOLUTION`), and enforces pre-paywall tension escalation on
+       the immediately preceding episode (`PAYWALL_MISSING_PRE_ESCALATION`).
+    4. Episode duration corridor: enforces `target_episode_sec ± 15%` (`EPISODE_DURATION_OUT_OF_CORRIDOR`).
+    5. Asset sprawl caps: limits `lead_characters` to <= 3 (`LEAD_CAST_BUDGET_EXCEEDED`) and scales
+       maximum primary locations dynamically with episode count (`MAIN_LOCATION_BUDGET_EXCEEDED`).
+    """
+    violations: List[str] = []
+    episodes = series_plan.get("episodes") or []
+    if not isinstance(episodes, list) or len(episodes) == 0:
+        return SeriesPaywallPacingReport(
+            passed=False,
+            score=0,
+            violations=["SERIES_EPISODES_EMPTY: Series plan must contain at least 1 episode."],
+            metrics={
+                "episode_count": 0,
+                "payoff_count": 0,
+                "max_payoff_gap": 0,
+                "lead_character_count": 0,
+                "primary_location_count": 0,
+                "max_location_budget": 4,
+            },
+        )
+
+    max_gap_limit = int(SERIES_PACING_LIMITS["max_payoff_gap"])
+    min_payoff_score = float(SERIES_PACING_LIMITS["min_payoff_score"])
+    min_pw_hook = float(SERIES_PACING_LIMITS["min_paywall_hook_grade"])
+    min_pre_pw = float(SERIES_PACING_LIMITS["min_pre_paywall_grade"])
+    max_leads = int(SERIES_PACING_LIMITS["max_lead_characters"])
+    target_sec = float(series_plan.get("target_episode_sec", SERIES_PACING_LIMITS["default_target_duration_sec"]))
+    tol = float(SERIES_PACING_LIMITS["duration_tolerance_ratio"])
+    min_dur = round(target_sec * (1.0 - tol), 3)
+    max_dur = round(target_sec * (1.0 + tol), 3)
+
+    explicit_pw_ep = series_plan.get("paywall_episode")
+    payoff_flags: List[bool] = []
+    hook_grades: List[float] = []
+    ep_numbers: List[int] = []
+    collected_scenes: set[str] = {
+        str(s).strip() for s in (series_plan.get("primary_scenes") or []) if str(s).strip()
+    }
+
+    consecutive_dry = 0
+    max_observed_gap = 0
+    drought_reported = False
+
+    for idx, ep in enumerate(episodes):
+        ep_dict = ep if isinstance(ep, dict) else {}
+        ep_no = int(ep_dict.get("ep", idx + 1))
+        ep_numbers.append(ep_no)
+
+        raw_score = ep_dict.get("payoff_score", 0.0)
+        p_score = float(raw_score) if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool) else 0.0
+        has_payoff = bool(ep_dict.get("has_payoff", False)) or (p_score >= min_payoff_score)
+        payoff_flags.append(has_payoff)
+
+        if has_payoff:
+            consecutive_dry = 0
+        else:
+            consecutive_dry += 1
+            if consecutive_dry > max_observed_gap:
+                max_observed_gap = consecutive_dry
+            if consecutive_dry > max_gap_limit and not drought_reported:
+                drought_reported = True
+                violations.append(
+                    f"PAYOFF_DROUGHT_GAP_EXCEEDED: {consecutive_dry} consecutive episodes without a climax/reversal payoff ending at Ep {ep_no} (max gap {max_gap_limit})."
+                )
+
+        if "cliffhanger_grade" in ep_dict:
+            h_grade = float(ep_dict.get("cliffhanger_grade") or 0.0)
+        else:
+            h_grade = 8.0 if str(ep_dict.get("cliffhanger") or "").strip() else 0.0
+        hook_grades.append(h_grade)
+
+        for sc in ep_dict.get("scenes") or []:
+            if str(sc).strip():
+                collected_scenes.add(str(sc).strip())
+
+        if "duration_sec" in ep_dict and ep_dict.get("duration_sec") is not None:
+            dur = float(ep_dict["duration_sec"])
+            if not (min_dur <= dur <= max_dur):
+                violations.append(
+                    f"EPISODE_DURATION_OUT_OF_CORRIDOR: Ep {ep_no} duration {dur:.1f}s outside [{min_dur:.1f}s, {max_dur:.1f}s] (±15% of {target_sec:.0f}s)."
+                )
+
+        is_pw = bool(ep_dict.get("is_paywall", False)) or (explicit_pw_ep is not None and ep_no == int(explicit_pw_ep))
+        if is_pw:
+            if h_grade < min_pw_hook:
+                violations.append(
+                    f"PAYWALL_EPISODE_WEAK_HOOK: Paywall Ep {ep_no} cliffhanger_grade={h_grade:.1f} < {min_pw_hook:.1f} conversion threshold."
+                )
+            if bool(ep_dict.get("premature_resolution", False)):
+                violations.append(
+                    f"PAYWALL_PREMATURE_RESOLUTION: Paywall Ep {ep_no} resolves core arc tension before paid unlock boundary."
+                )
+            if idx > 0 and not payoff_flags[idx - 1] and hook_grades[idx - 1] < min_pre_pw:
+                violations.append(
+                    f"PAYWALL_MISSING_PRE_ESCALATION: Pre-paywall Ep {ep_numbers[idx - 1]} lacks payoff or escalation hook (< {min_pre_pw:.1f}) to drive Ep {ep_no} unlock."
+                )
+
+    opening_window = min(3, len(payoff_flags))
+    if opening_window > 0 and not any(payoff_flags[:opening_window]):
+        violations.append(
+            f"GOLDEN_OPENING_PAYOFF_MISSING: No core payoff delivered within Golden Opening Episodes 1..{opening_window}."
+        )
+
+    leads = [str(c).strip() for c in (series_plan.get("lead_characters") or []) if str(c).strip()]
+    if len(leads) > max_leads:
+        violations.append(
+            f"LEAD_CAST_BUDGET_EXCEEDED: Series declares {len(leads)} lead characters (max {max_leads} to preserve AI face-anchor focus)."
+        )
+
+    ep_total = len(episodes)
+    max_loc_budget = max(4, min(16, (ep_total * 3 + 4) // 5))
+    if len(collected_scenes) > max_loc_budget:
+        violations.append(
+            f"MAIN_LOCATION_BUDGET_EXCEEDED: Series uses {len(collected_scenes)} primary locations across {ep_total} episodes (dynamic cap {max_loc_budget})."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return SeriesPaywallPacingReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "episode_count": ep_total,
+            "payoff_count": sum(1 for flag in payoff_flags if flag),
+            "max_payoff_gap": max_observed_gap,
+            "lead_character_count": len(leads),
+            "primary_location_count": len(collected_scenes),
+            "max_location_budget": max_loc_budget,
+        },
+    )
+
+
