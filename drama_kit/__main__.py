@@ -17,6 +17,7 @@ from .gates import (
     inspect_scene_staging_plan,
     inspect_scene_prop_bible,
     inspect_series_paywall_pacing,
+    inspect_game_release_readiness,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -276,6 +277,22 @@ def main() -> None:
             }
         )
 
+        game_readiness_report = inspect_game_release_readiness(
+            {
+                "subpackages_total_mb": 14.5,
+                "cold_start_ms": 1450,
+                "max_texture_px": 2048,
+                "peak_draw_calls": 82,
+                "has_audio": True,
+                "audio_gesture_unlocked": True,
+                "storage_keys": ["sword_sect:save_v1", "sword_sect:audio_prefs"],
+                "scripts": ["js/bundle.min.js", "js/runtime.js"],
+                "has_debug_overlay": False,
+                "has_health_gaming_notice": True,
+            },
+            target="wechat_minigame",
+        )
+
         print(
             json.dumps(
                 {
@@ -364,6 +381,13 @@ def main() -> None:
                         "score": series_pacing_report.score,
                         "violations": series_pacing_report.violations,
                         "metrics": series_pacing_report.metrics,
+                    },
+                    "game_release_readiness_gate": {
+                        "passed": game_readiness_report.passed,
+                        "score": game_readiness_report.score,
+                        "target": game_readiness_report.target,
+                        "violations": game_readiness_report.violations,
+                        "metrics": game_readiness_report.metrics,
                     },
                 },
                 ensure_ascii=False,

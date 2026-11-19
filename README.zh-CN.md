@@ -47,6 +47,8 @@
     - 面向美术设定集与下游垫图一致性的确定性审计：强制每个场景具备 `[3, 5]` 个跨集不变视觉锚点、拦截场景空景提示词混入路人/角色（`SCENE_EMPTY_PLATE_ACTOR_CONTAMINATION`，杜绝垫图假人叠影）、拦截叙事道具提示词带手握持（`PROP_HAND_CONTAMINATION`）或非纯白底不可抠图（`PROP_NON_ISOLATED_BACKGROUND`）及缺失 `[0.5, 500.0]` cm 物理尺度参照，并双向对账剧本所需的场景光照变体与道具状态变体。
 15. **📈 跨集爽点节奏、黄金开篇与付费卡点转化门禁 (`inspect_series_paywall_pacing`)**：
     - 面向整季短剧改编大纲的留存与变现确定性审计：强制黄金前 3 集兑现核心爽点（`GOLDEN_OPENING_PAYOFF_MISSING`）、拦截连续超过 3 集无高潮反转的断档弃剧风险（`PAYOFF_DROUGHT_GAP_EXCEEDED`）、校验付费卡点集悬念强度（`cliffhanger_grade >= 8.0`）、前置集情绪拉升（`PAYWALL_MISSING_PRE_ESCALATION`）与防提前泄气收尾（`PAYWALL_PREMATURE_RESOLUTION`）、约束单集时长 `±15%` 走廊，并动态封顶主角人数（`<= 3`）与跨集主场景预算。
+16. **🕹️ 多端小游戏/互动影游运行时性能预算与上架合规门禁 (`inspect_game_release_readiness`)**：
+    - 面向 **微信小游戏、抖音小游戏、B站 Toy、TapTap、Itch.io 与 CrazyGames** 上架前运行时体检：强制校验分包总和上限（微信/抖音 `30MB`）与首屏可交互冷启动 `<= 3000ms`、移动端 WebGL 贴图尺寸 `<= 2048px` 与峰值 `DrawCall <= 150` 防黑屏掉帧、首帧点击手势解锁 `AudioContext.resume()`、同源沙箱 `<game_slug>:` 命名空间 `localStorage` 存档防串号、生产环境剥离 `vConsole`/`eruda` 调试探针，以及国内渠道必备的 48 字《健康游戏忠告》闪屏合规校验。
 
 ---
 

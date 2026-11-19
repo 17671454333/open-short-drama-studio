@@ -1727,3 +1727,162 @@ def inspect_series_paywall_pacing(series_plan: Dict[str, Any]) -> SeriesPaywallP
     )
 
 
+@dataclass
+class GameReleaseReadinessReport:
+    passed: bool
+    score: int
+    target: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+GAME_RUNTIME_BUDGET_LIMITS: Dict[str, Any] = {
+    "max_texture_px": 2048,
+    "max_peak_draw_calls": 150,
+    "max_cold_start_ms": 3000,
+    "max_subpackages_mb": {
+        "wechat_minigame": 30.0,
+        "douyin_minigame": 30.0,
+        "bilibili_toy": 50.0,
+        "taptap": 150.0,
+        "itch_io": 200.0,
+        "crazygames": 100.0,
+    },
+    "cn_regulated_targets": [
+        "wechat_minigame",
+        "douyin_minigame",
+        "bilibili_toy",
+        "taptap",
+    ],
+}
+
+_COLLIDING_GENERIC_STORAGE_KEYS = frozenset({
+    "save",
+    "state",
+    "score",
+    "highscore",
+    "settings",
+    "config",
+    "progress",
+    "player",
+    "userdata",
+    "profile",
+    "coins",
+    "level",
+})
+
+_SCOPED_STORAGE_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,}[:./][a-zA-Z0-9_.:/-]+$")
+
+_DEBUG_CONSOLE_SCRIPT_PATTERN = re.compile(
+    r"(?i)(?:^|[/\\._-])(?:vconsole|eruda|stats(?:\.min)?\.js|dat\.gui)(?:[/\\._-]|$)"
+)
+
+
+def inspect_game_release_readiness(
+    spec: Dict[str, Any],
+    target: str = "wechat_minigame",
+) -> GameReleaseReadinessReport:
+    """
+    Deterministic multi-portal WebGame / Mini-Game & Interactive Drama runtime & compliance gate:
+    1. Subpackage & cold-start latency corridor: checks `subpackages_total_mb` against portal ceiling
+       (30MB WeChat/Douyin Mini-Game) and `cold_start_ms <= 3000ms` (`SUBPACKAGE_BUDGET_EXCEEDED`, `COLD_START_LATENCY_EXCEEDED`).
+    2. Mobile GPU memory & draw-call ceiling: blocks `max_texture_px > 2048` (`TEXTURE_DIMENSION_EXCEEDED`)
+       and `peak_draw_calls > 150` (`DRAW_CALL_BUDGET_EXCEEDED`) to prevent mobile WebView OOM/frame drops.
+    3. WebAudio autoplay unlock discipline: enforces `audio_gesture_unlocked=True` when `has_audio=True`
+       (`WEBAUDIO_GESTURE_UNLOCK_MISSING`).
+    4. Same-origin iframe save-slot isolation: rejects generic unprefixed `localStorage` keys (`save`, `score`)
+       that collide across Bilibili Toy / Itch.io / CrazyGames sandboxes (`UNSCOPED_STORAGE_KEY_COLLISION`).
+    5. Production debug probe stripping: blocks `vConsole` / `eruda` / debug overlay leaks (`DEBUG_CONSOLE_LEAKED`).
+    6. Domestic portal anti-addiction notice: requires standard 48-char Health Gaming Notice (`has_health_gaming_notice=True`)
+       on regulated CN portals (`wechat_minigame`, `douyin_minigame`, `bilibili_toy`, `taptap`) (`CN_HEALTH_GAMING_NOTICE_MISSING`).
+    """
+    violations: List[str] = []
+    subpkg_caps: Dict[str, float] = GAME_RUNTIME_BUDGET_LIMITS["max_subpackages_mb"]
+    target_key = str(target or "wechat_minigame").strip().lower()
+    if target_key not in subpkg_caps:
+        violations.append(
+            f"UNSUPPORTED_RELEASE_TARGET: Target '{target_key}' not in {sorted(subpkg_caps.keys())}; falling back to 'wechat_minigame'."
+        )
+        target_key = "wechat_minigame"
+
+    max_tex_limit = int(GAME_RUNTIME_BUDGET_LIMITS["max_texture_px"])
+    max_dc_limit = int(GAME_RUNTIME_BUDGET_LIMITS["max_peak_draw_calls"])
+    max_boot_ms = int(GAME_RUNTIME_BUDGET_LIMITS["max_cold_start_ms"])
+    subpkg_limit_mb = float(subpkg_caps[target_key])
+
+    subpkg_mb = float(spec.get("subpackages_total_mb", 0.0) or 0.0)
+    if subpkg_mb > subpkg_limit_mb:
+        violations.append(
+            f"SUBPACKAGE_BUDGET_EXCEEDED: Total subpackages {subpkg_mb:.2f}MB exceed '{target_key}' {subpkg_limit_mb:.1f}MB limit."
+        )
+
+    cold_start_ms = int(spec.get("cold_start_ms", 1200) or 0)
+    if cold_start_ms > max_boot_ms:
+        violations.append(
+            f"COLD_START_LATENCY_EXCEEDED: First interactive frame {cold_start_ms}ms exceeds {max_boot_ms}ms portal retention budget."
+        )
+
+    max_tex_px = int(spec.get("max_texture_px", 1024) or 0)
+    if max_tex_px > max_tex_limit:
+        violations.append(
+            f"TEXTURE_DIMENSION_EXCEEDED: Max texture atlas {max_tex_px}px exceeds {max_tex_limit}px mobile WebGL safe limit."
+        )
+
+    peak_dc = int(spec.get("peak_draw_calls", 60) or 0)
+    if peak_dc > max_dc_limit:
+        violations.append(
+            f"DRAW_CALL_BUDGET_EXCEEDED: Peak draw calls ({peak_dc}) exceed {max_dc_limit} mobile 60fps ceiling."
+        )
+
+    has_audio = bool(spec.get("has_audio", True))
+    gesture_unlocked = bool(spec.get("audio_gesture_unlocked", True))
+    if has_audio and not gesture_unlocked:
+        violations.append(
+            "WEBAUDIO_GESTURE_UNLOCK_MISSING: Audio playback lacks first pointerdown/touchstart AudioContext.resume() unlock."
+        )
+
+    raw_keys = [str(k).strip() for k in (spec.get("storage_keys") or []) if str(k).strip()]
+    colliding_keys: List[str] = []
+    for skey in raw_keys:
+        if skey.lower() in _COLLIDING_GENERIC_STORAGE_KEYS or not _SCOPED_STORAGE_KEY_PATTERN.match(skey):
+            colliding_keys.append(skey)
+    if colliding_keys:
+        violations.append(
+            f"UNSCOPED_STORAGE_KEY_COLLISION: Unscoped localStorage key(s) {colliding_keys[:3]} risk cross-game save overwrite; prefix with '<game_slug>:'."
+        )
+
+    scripts = [str(s).strip() for s in (spec.get("scripts") or []) if str(s).strip()]
+    leaked_probes = [s for s in scripts if _DEBUG_CONSOLE_SCRIPT_PATTERN.search(s)]
+    if bool(spec.get("has_debug_overlay", False)) or leaked_probes:
+        probe_desc = f" ({', '.join(leaked_probes[:2])})" if leaked_probes else ""
+        violations.append(
+            f"DEBUG_CONSOLE_LEAKED: Strip vConsole/eruda/debug overlay before production packaging{probe_desc}."
+        )
+
+    cn_targets = set(GAME_RUNTIME_BUDGET_LIMITS["cn_regulated_targets"])
+    requires_cn_notice = target_key in cn_targets
+    has_cn_notice = bool(spec.get("has_health_gaming_notice", not requires_cn_notice))
+    if requires_cn_notice and not has_cn_notice:
+        violations.append(
+            f"CN_HEALTH_GAMING_NOTICE_MISSING: Target '{target_key}' requires standard 48-character Health Gaming Notice on splash screen."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return GameReleaseReadinessReport(
+        passed=len(violations) == 0,
+        score=score,
+        target=target_key,
+        violations=violations,
+        metrics={
+            "subpackages_total_mb": round(subpkg_mb, 3),
+            "max_subpackages_mb_limit": subpkg_limit_mb,
+            "cold_start_ms": cold_start_ms,
+            "max_texture_px": max_tex_px,
+            "peak_draw_calls": peak_dc,
+            "scoped_storage_key_count": len(raw_keys) - len(colliding_keys),
+            "colliding_storage_key_count": len(colliding_keys),
+            "requires_cn_notice": requires_cn_notice,
+        },
+    )
+
+

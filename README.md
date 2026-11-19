@@ -58,6 +58,8 @@ Most AI video & short-drama scripts fail before generation even starts: weak col
     - Pre-generation environment & narrative prop consistency auditor: enforces `[3, 5]` invariant spatial visual anchors per scene, blocks human/crowd contamination in `empty_plate_prompt` (preventing frozen background ghost figures), blocks hand/grip limb artifacts on prop cutouts while requiring isolated pure-white backgrounds and `[0.5, 500.0]` cm physical scale references, and reconciles episode `(scene_id, lighting)` and `(prop_id, state)` dependencies.
 16. **📈 Cross-Episode Series Paywall & Climax Pacing Gate (`inspect_series_paywall_pacing`)**:
     - Season-level retention & monetization auditor: enforces Golden 3-Episode Opening payoff delivery (`Ep 1..3`), blocks `> 3` consecutive climax-drought episodes (`PAYOFF_DROUGHT_GAP_EXCEEDED`), validates paywall conversion episodes (`cliffhanger_grade >= 8.0`, pre-paywall escalation on `Ep N-1`, zero premature arc resolution), enforces `target_episode_sec ± 15%` duration corridors, and caps lead cast (`<= 3`) and dynamic primary location sprawl.
+17. **🕹️ Multi-Portal Game Runtime Performance & Compliance Gate (`inspect_game_release_readiness`)**:
+    - Pre-release runtime & compliance auditor for **WeChat Mini-Games, Douyin Mini-Games, Bilibili Toy, TapTap, Itch.io, and CrazyGames**: enforces portal subpackage budgets (`30MB` WeChat/Douyin) and `<= 3000ms` cold-start latency, mobile WebGL `<= 2048px` texture & `<= 150` draw-call ceilings, `AudioContext.resume()` user-gesture unlock, `<game_slug>:` namespaced `localStorage` save keys (preventing cross-game iframe overwrite), `vConsole`/`eruda` debug probe stripping, and domestic 48-character Health Gaming Notice splash compliance.
 
 ---
 

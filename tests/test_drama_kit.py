@@ -15,6 +15,7 @@ from drama_kit import (
     inspect_scene_staging_plan,
     inspect_scene_prop_bible,
     inspect_series_paywall_pacing,
+    inspect_game_release_readiness,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -805,6 +806,71 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("PAYWALL_MISSING_PRE_ESCALATION" in v for v in rep.violations))
         self.assertTrue(any("LEAD_CAST_BUDGET_EXCEEDED" in v for v in rep.violations))
         self.assertTrue(any("MAIN_LOCATION_BUDGET_EXCEEDED" in v for v in rep.violations))
+
+    def test_inspect_game_release_readiness_passes_compliant_wechat_and_itch_builds(self):
+        rep_wx = inspect_game_release_readiness(
+            {
+                "subpackages_total_mb": 18.2,
+                "cold_start_ms": 1650,
+                "max_texture_px": 2048,
+                "peak_draw_calls": 95,
+                "has_audio": True,
+                "audio_gesture_unlocked": True,
+                "storage_keys": ["blade_chronicle:slot_1", "blade_chronicle:settings"],
+                "scripts": ["js/game.min.js"],
+                "has_debug_overlay": False,
+                "has_health_gaming_notice": True,
+            },
+            target="wechat_minigame",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+        self.assertEqual(rep_wx.violations, [])
+        self.assertTrue(rep_wx.metrics["requires_cn_notice"])
+
+        rep_itch = inspect_game_release_readiness(
+            {
+                "subpackages_total_mb": 64.0,
+                "cold_start_ms": 2100,
+                "max_texture_px": 2048,
+                "peak_draw_calls": 110,
+                "has_audio": True,
+                "audio_gesture_unlocked": True,
+                "storage_keys": ["cyber_noir:save_v2"],
+                "scripts": ["dist/index.js"],
+            },
+            target="itch_io",
+        )
+        self.assertTrue(rep_itch.passed)
+        self.assertEqual(rep_itch.score, 100)
+        self.assertFalse(rep_itch.metrics["requires_cn_notice"])
+
+    def test_inspect_game_release_readiness_catches_gpu_audio_save_debug_and_compliance_traps(self):
+        rep = inspect_game_release_readiness(
+            {
+                "subpackages_total_mb": 42.5,
+                "cold_start_ms": 4800,
+                "max_texture_px": 4096,
+                "peak_draw_calls": 260,
+                "has_audio": True,
+                "audio_gesture_unlocked": False,
+                "storage_keys": ["save", "ab:slot"],
+                "scripts": ["vendor/vconsole.min.js", "js/main.js"],
+                "has_debug_overlay": True,
+                "has_health_gaming_notice": False,
+            },
+            target="wechat_minigame",
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("SUBPACKAGE_BUDGET_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("COLD_START_LATENCY_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("TEXTURE_DIMENSION_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("DRAW_CALL_BUDGET_EXCEEDED" in v for v in rep.violations))
+        self.assertTrue(any("WEBAUDIO_GESTURE_UNLOCK_MISSING" in v for v in rep.violations))
+        self.assertTrue(any("UNSCOPED_STORAGE_KEY_COLLISION" in v for v in rep.violations))
+        self.assertTrue(any("DEBUG_CONSOLE_LEAKED" in v for v in rep.violations))
+        self.assertTrue(any("CN_HEALTH_GAMING_NOTICE_MISSING" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

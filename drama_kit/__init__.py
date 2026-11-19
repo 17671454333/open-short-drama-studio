@@ -7,7 +7,7 @@ quality gate, vertical video caption safe-zone inspector & six-segment storyboar
 prompt standardizer for AI Short-Drama & Game Studios.
 """
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 from .gates import (
     validate_episode_outline,
@@ -25,6 +25,7 @@ from .gates import (
     inspect_scene_staging_plan,
     inspect_scene_prop_bible,
     inspect_series_paywall_pacing,
+    inspect_game_release_readiness,
     OutlineGateReport,
     BudgetEstimate,
     WebGameHealthReport,
@@ -39,6 +40,7 @@ from .gates import (
     SceneStagingReport,
     ScenePropBibleReport,
     SeriesPaywallPacingReport,
+    GameReleaseReadinessReport,
     STUDIO_BGM_LIBRARY_PRESETS,
     PLATFORM_SAFE_MARGINS,
     COVER_RATIO_PRESETS,
@@ -50,6 +52,7 @@ from .gates import (
     SCENE_STAGING_LIMITS,
     SCENE_PROP_BIBLE_LIMITS,
     SERIES_PACING_LIMITS,
+    GAME_RUNTIME_BUDGET_LIMITS,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -75,6 +78,7 @@ __all__ = [
     "inspect_scene_staging_plan",
     "inspect_scene_prop_bible",
     "inspect_series_paywall_pacing",
+    "inspect_game_release_readiness",
     "standardize_shot_prompt",
     "OutlineGateReport",
     "BudgetEstimate",
@@ -90,6 +94,7 @@ __all__ = [
     "SceneStagingReport",
     "ScenePropBibleReport",
     "SeriesPaywallPacingReport",
+    "GameReleaseReadinessReport",
     "STUDIO_BGM_LIBRARY_PRESETS",
     "PLATFORM_SAFE_MARGINS",
     "COVER_RATIO_PRESETS",
@@ -101,6 +106,7 @@ __all__ = [
     "SCENE_STAGING_LIMITS",
     "SCENE_PROP_BIBLE_LIMITS",
     "SERIES_PACING_LIMITS",
+    "GAME_RUNTIME_BUDGET_LIMITS",
     "DEFAULT_NEGATIVE_PROMPT",
     "MODEL_STYLE_PRESETS",
 ]
