@@ -16,6 +16,7 @@ from drama_kit import (
     inspect_scene_prop_bible,
     inspect_series_paywall_pacing,
     inspect_game_release_readiness,
+    inspect_interactive_branch_graph,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -871,6 +872,103 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("UNSCOPED_STORAGE_KEY_COLLISION" in v for v in rep.violations))
         self.assertTrue(any("DEBUG_CONSOLE_LEAKED" in v for v in rep.violations))
         self.assertTrue(any("CN_HEALTH_GAMING_NOTICE_MISSING" in v for v in rep.violations))
+
+    def test_inspect_interactive_branch_graph_passes_clean_diamond_dag(self):
+        rep = inspect_interactive_branch_graph(
+            {
+                "entry_node": "N01_Intro",
+                "nodes": [
+                    {
+                        "id": "N01_Intro",
+                        "timer_sec": 7.5,
+                        "preload_targets": ["N02_Stealth", "N03_Duel"],
+                        "choices": [
+                            {"label": "潜入藏经阁", "target": "N02_Stealth", "is_default": True},
+                            {"label": "正面迎战长老", "target": "N03_Duel"},
+                        ],
+                    },
+                    {
+                        "id": "N02_Stealth",
+                        "preload_targets": ["N04_True_End", "N05_Bad_End"],
+                        "choices": [
+                            {"label": "开启禁制石匣", "target": "N04_True_End"},
+                            {"label": "原路撤离", "target": "N05_Bad_End"},
+                        ],
+                    },
+                    {
+                        "id": "N03_Duel",
+                        "auto_advance": True,
+                        "preload_targets": ["N04_True_End"],
+                        "choices": [
+                            {"label": "剑意觉醒", "target": "N04_True_End"},
+                        ],
+                    },
+                    {"id": "N04_True_End", "is_ending": True},
+                    {"id": "N05_Bad_End", "is_ending": True},
+                ],
+            }
+        )
+        self.assertTrue(rep.passed)
+        self.assertEqual(rep.score, 100)
+        self.assertEqual(rep.violations, [])
+        self.assertEqual(rep.metrics["node_count"], 5)
+        self.assertEqual(rep.metrics["reachable_count"], 5)
+        self.assertEqual(rep.metrics["ending_count"], 2)
+        self.assertEqual(rep.metrics["orphan_count"], 0)
+        self.assertEqual(rep.metrics["trap_node_count"], 0)
+
+    def test_inspect_interactive_branch_graph_catches_orphan_trap_dangling_timer_and_preload(self):
+        rep = inspect_interactive_branch_graph(
+            {
+                "entry_node": "N01_Start",
+                "nodes": [
+                    {
+                        "id": "N01_Start",
+                        "timer_sec": 2.0,
+                        "preload_targets": ["N02_Loop_A"],
+                        "choices": [
+                            {"label": "坠入幻境", "target": "N02_Loop_A"},
+                            {"label": "破阵突围", "target": "N04_End"},
+                            {"label": "未知断崖", "target": "N99_Missing"},
+                        ],
+                    },
+                    {
+                        "id": "N02_Loop_A",
+                        "preload_targets": ["N03_Loop_B"],
+                        "choices": [
+                            {"label": "向左走", "target": "N03_Loop_B"},
+                            {"label": "原地徘徊", "target": "N02_Loop_A"},
+                        ],
+                    },
+                    {
+                        "id": "N03_Loop_B",
+                        "preload_targets": ["N02_Loop_A"],
+                        "choices": [
+                            {"label": "向右走", "target": "N02_Loop_A"},
+                        ],
+                    },
+                    {
+                        "id": "N04_End",
+                        "is_ending": True,
+                    },
+                    {
+                        "id": "N05_Orphan_DeadEnd",
+                        "is_ending": False,
+                        "choices": [],
+                    },
+                ],
+            }
+        )
+        self.assertFalse(rep.passed)
+        self.assertEqual(rep.score, 0)
+        self.assertTrue(any("DANGLING_CHOICE_TARGET" in v for v in rep.violations))
+        self.assertTrue(any("DECISION_TIMER_OUT_OF_RANGE" in v for v in rep.violations))
+        self.assertTrue(any("MISSING_TIMEOUT_DEFAULT_CHOICE" in v for v in rep.violations))
+        self.assertTrue(any("NEXT_BRANCH_PRELOAD_MISSING" in v for v in rep.violations))
+        self.assertTrue(any("CHOICE_COUNT_OUT_OF_RANGE" in v for v in rep.violations))
+        self.assertTrue(any("NON_TERMINAL_DEAD_END" in v for v in rep.violations))
+        self.assertTrue(any("UNREACHABLE_ORPHAN_NODE" in v for v in rep.violations))
+        self.assertTrue(any("INFINITE_TRAP_WITHOUT_ENDING" in v for v in rep.violations))
 
 
 if __name__ == "__main__":

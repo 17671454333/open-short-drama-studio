@@ -49,6 +49,8 @@
     - 面向整季短剧改编大纲的留存与变现确定性审计：强制黄金前 3 集兑现核心爽点（`GOLDEN_OPENING_PAYOFF_MISSING`）、拦截连续超过 3 集无高潮反转的断档弃剧风险（`PAYOFF_DROUGHT_GAP_EXCEEDED`）、校验付费卡点集悬念强度（`cliffhanger_grade >= 8.0`）、前置集情绪拉升（`PAYWALL_MISSING_PRE_ESCALATION`）与防提前泄气收尾（`PAYWALL_PREMATURE_RESOLUTION`）、约束单集时长 `±15%` 走廊，并动态封顶主角人数（`<= 3`）与跨集主场景预算。
 16. **🕹️ 多端小游戏/互动影游运行时性能预算与上架合规门禁 (`inspect_game_release_readiness`)**：
     - 面向 **微信小游戏、抖音小游戏、B站 Toy、TapTap、Itch.io 与 CrazyGames** 上架前运行时体检：强制校验分包总和上限（微信/抖音 `30MB`）与首屏可交互冷启动 `<= 3000ms`、移动端 WebGL 贴图尺寸 `<= 2048px` 与峰值 `DrawCall <= 150` 防黑屏掉帧、首帧点击手势解锁 `AudioContext.resume()`、同源沙箱 `<game_slug>:` 命名空间 `localStorage` 存档防串号、生产环境剥离 `vConsole`/`eruda` 调试探针，以及国内渠道必备的 48 字《健康游戏忠告》闪屏合规校验。
+17. **🔀 互动短剧/分支影游状态机拓扑与无缝预加载门禁 (`inspect_interactive_branch_graph`)**：
+    - 面向 **B站互动视频、B站 Toy、微信/Steam 互动影游与分支剧情网页游戏** 打包前状态机审计：通过正向 BFS 揪出从入口不可达的孤岛废片节点（`UNREACHABLE_ORPHAN_NODE`，防白烧积分与撑爆包体）、反向 BFS 从全结局节点倒推捕获无出口死循环陷阱（`INFINITE_TRAP_WITHOUT_ENDING`）、拦截悬挂选项引用与非结局死胡同黑屏（`DANGLING_CHOICE_TARGET` / `NON_TERMINAL_DEAD_END`）、约束 9:16 竖屏触控选项数 `[2, 4]` 与 `[4.0s, 20.0s]` 限时抉择超时默认兜底分支（`is_default=True`），并强制对账下一跳视频 `preload_targets` 预加载清单（杜绝切镜解码黑屏闪烁）。
 
 ---
 

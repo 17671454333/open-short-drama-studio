@@ -18,6 +18,7 @@ from .gates import (
     inspect_scene_prop_bible,
     inspect_series_paywall_pacing,
     inspect_game_release_readiness,
+    inspect_interactive_branch_graph,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -293,6 +294,31 @@ def main() -> None:
             target="wechat_minigame",
         )
 
+        interactive_branch_report = inspect_interactive_branch_graph(
+            {
+                "entry_node": "N01_Cliff_Confrontation",
+                "nodes": [
+                    {
+                        "id": "N01_Cliff_Confrontation",
+                        "timer_sec": 8.0,
+                        "preload_targets": ["N02_Draw_Sword", "N03_Seal_Array"],
+                        "choices": [
+                            {"label": "拔剑强破护宗大阵", "target": "N02_Draw_Sword", "is_default": True},
+                            {"label": "催动玄冰印反客为主", "target": "N03_Seal_Array"},
+                        ],
+                    },
+                    {
+                        "id": "N02_Draw_Sword",
+                        "is_ending": True,
+                    },
+                    {
+                        "id": "N03_Seal_Array",
+                        "is_ending": True,
+                    },
+                ],
+            }
+        )
+
         print(
             json.dumps(
                 {
@@ -388,6 +414,12 @@ def main() -> None:
                         "target": game_readiness_report.target,
                         "violations": game_readiness_report.violations,
                         "metrics": game_readiness_report.metrics,
+                    },
+                    "interactive_branch_gate": {
+                        "passed": interactive_branch_report.passed,
+                        "score": interactive_branch_report.score,
+                        "violations": interactive_branch_report.violations,
+                        "metrics": interactive_branch_report.metrics,
                     },
                 },
                 ensure_ascii=False,

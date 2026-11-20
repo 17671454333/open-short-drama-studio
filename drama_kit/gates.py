@@ -1886,3 +1886,205 @@ def inspect_game_release_readiness(
     )
 
 
+@dataclass
+class InteractiveBranchGraphReport:
+    passed: bool
+    score: int
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+INTERACTIVE_BRANCH_LIMITS: Dict[str, Any] = {
+    "min_choices_per_branch": 2,
+    "max_choices_per_branch": 4,
+    "min_decision_timer_sec": 4.0,
+    "max_decision_timer_sec": 20.0,
+    "max_preload_targets_per_node": 4,
+}
+
+
+def inspect_interactive_branch_graph(
+    graph_spec: Dict[str, Any],
+) -> InteractiveBranchGraphReport:
+    """
+    Deterministic state-machine & seamless preload gate for Interactive Short-Dramas / Branching FMV WebGames:
+    1. Entry & ending topology existence: ensures `entry_node` exists, node IDs are unique, and at least one
+       `is_ending=True` terminal node exists (`MISSING_ENTRY_NODE`, `DUPLICATE_NODE_ID`, `MISSING_ENDING_NODE`).
+    2. Dangling target & non-terminal dead-end check: blocks choice edges pointing to undeclared node IDs
+       (`DANGLING_CHOICE_TARGET`) and non-ending nodes with 0 outgoing choices (`NON_TERMINAL_DEAD_END`).
+    3. 9:16 mobile choice ergonomics & countdown fallback: enforces `[2, 4]` choices on branching nodes
+       (`CHOICE_COUNT_OUT_OF_RANGE`), `[4.0s, 20.0s]` countdown bounds (`DECISION_TIMER_OUT_OF_RANGE`), and an
+       explicit `is_default=True` fallback choice whenever `timer_sec` is enabled (`MISSING_TIMEOUT_DEFAULT_CHOICE`).
+    4. Forward BFS orphan detection: flags unreachable AI video nodes that bloat package size (`UNREACHABLE_ORPHAN_NODE`).
+    5. Reverse BFS infinite-loop trap detection: flags reachable nodes that have zero directed path to any
+       `is_ending=True` outcome (`INFINITE_TRAP_WITHOUT_ENDING`).
+    6. Zero-black-frame branch preload reconciliation: verifies outgoing branch targets are declared in
+       `preload_targets` (capped at `<= 4` concurrent preloads) so clicking a choice switches clips without
+       WebView decoder black-screen flashes (`NEXT_BRANCH_PRELOAD_MISSING`, `PRELOAD_BUDGET_EXCEEDED`).
+    """
+    from collections import deque
+
+    violations: List[str] = []
+    raw_nodes = graph_spec.get("nodes") or []
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        return InteractiveBranchGraphReport(
+            passed=False,
+            score=0,
+            violations=["EMPTY_BRANCH_GRAPH: Interactive narrative graph must declare at least 1 node."],
+            metrics={
+                "node_count": 0,
+                "reachable_count": 0,
+                "ending_count": 0,
+                "orphan_count": 0,
+                "trap_node_count": 0,
+            },
+        )
+
+    min_choices = int(INTERACTIVE_BRANCH_LIMITS["min_choices_per_branch"])
+    max_choices = int(INTERACTIVE_BRANCH_LIMITS["max_choices_per_branch"])
+    min_timer = float(INTERACTIVE_BRANCH_LIMITS["min_decision_timer_sec"])
+    max_timer = float(INTERACTIVE_BRANCH_LIMITS["max_decision_timer_sec"])
+    max_preload = int(INTERACTIVE_BRANCH_LIMITS["max_preload_targets_per_node"])
+
+    nodes_by_id: Dict[str, Dict[str, Any]] = {}
+    duplicates: List[str] = []
+    for item in raw_nodes:
+        if not isinstance(item, dict):
+            continue
+        nid = str(item.get("id", "")).strip()
+        if not nid:
+            continue
+        if nid in nodes_by_id:
+            duplicates.append(nid)
+        else:
+            nodes_by_id[nid] = item
+
+    if duplicates:
+        violations.append(f"DUPLICATE_NODE_ID: Duplicate interactive node IDs detected: {sorted(set(duplicates))}.")
+
+    entry_id = str(graph_spec.get("entry_node", "")).strip()
+    if not entry_id or entry_id not in nodes_by_id:
+        violations.append(
+            f"MISSING_ENTRY_NODE: Declared entry_node '{entry_id}' does not exist in nodes."
+        )
+
+    ending_ids = [nid for nid, nd in nodes_by_id.items() if bool(nd.get("is_ending", False))]
+    if not ending_ids:
+        violations.append("MISSING_ENDING_NODE: Graph must contain at least one terminal node with is_ending=True.")
+
+    forward_adj: Dict[str, List[str]] = {nid: [] for nid in nodes_by_id}
+    reverse_adj: Dict[str, List[str]] = {nid: [] for nid in nodes_by_id}
+    enforce_preload = bool(graph_spec.get("require_preload", True))
+
+    for nid, nd in nodes_by_id.items():
+        is_end = bool(nd.get("is_ending", False))
+        choices = nd.get("choices") or []
+        if not isinstance(choices, list):
+            choices = []
+
+        if is_end:
+            if choices:
+                violations.append(
+                    f"ENDING_NODE_HAS_OUTGOING_CHOICES: Terminal node '{nid}' is marked is_ending=True but defines {len(choices)} outgoing choice(s)."
+                )
+            continue
+
+        if not choices:
+            violations.append(
+                f"NON_TERMINAL_DEAD_END: Node '{nid}' is not marked is_ending=True but defines 0 outgoing choices."
+            )
+            continue
+
+        if not (min_choices <= len(choices) <= max_choices) and not bool(nd.get("auto_advance", False)):
+            violations.append(
+                f"CHOICE_COUNT_OUT_OF_RANGE: Branch node '{nid}' defines {len(choices)} choice(s) (expected [{min_choices}, {max_choices}] for 9:16 mobile UI)."
+            )
+
+        valid_targets: List[str] = []
+        default_count = 0
+        for ch in choices:
+            if not isinstance(ch, dict):
+                continue
+            tgt = str(ch.get("target", "")).strip()
+            if bool(ch.get("is_default", False)):
+                default_count += 1
+            if not tgt or tgt not in nodes_by_id:
+                violations.append(
+                    f"DANGLING_CHOICE_TARGET: Choice in node '{nid}' points to undeclared target '{tgt}'."
+                )
+            else:
+                valid_targets.append(tgt)
+                forward_adj[nid].append(tgt)
+                reverse_adj[tgt].append(nid)
+
+        timer_val = nd.get("timer_sec")
+        if timer_val is not None:
+            t_sec = float(timer_val)
+            if not (min_timer <= t_sec <= max_timer):
+                violations.append(
+                    f"DECISION_TIMER_OUT_OF_RANGE: Node '{nid}' timer_sec={t_sec:.1f}s outside [{min_timer:.1f}s, {max_timer:.1f}s] reading window."
+                )
+            if default_count == 0:
+                violations.append(
+                    f"MISSING_TIMEOUT_DEFAULT_CHOICE: Timed node '{nid}' (timer_sec={t_sec:.1f}s) must mark one choice with is_default=True."
+                )
+
+        if enforce_preload and valid_targets:
+            preloads = [str(p).strip() for p in (nd.get("preload_targets") or []) if str(p).strip()]
+            if len(preloads) > max_preload:
+                violations.append(
+                    f"PRELOAD_BUDGET_EXCEEDED: Node '{nid}' preloads {len(preloads)} clips (max {max_preload} concurrent decoders)."
+                )
+            missing_preloads = sorted(set(valid_targets) - set(preloads))
+            if missing_preloads:
+                violations.append(
+                    f"NEXT_BRANCH_PRELOAD_MISSING: Node '{nid}' omits next-hop preload_targets {missing_preloads}, risking decoder black-frame flash."
+                )
+
+    reachable: set[str] = set()
+    if entry_id in nodes_by_id:
+        q = deque([entry_id])
+        reachable.add(entry_id)
+        while q:
+            cur = q.popleft()
+            for nxt in forward_adj.get(cur, []):
+                if nxt not in reachable:
+                    reachable.add(nxt)
+                    q.append(nxt)
+
+    orphans = sorted(set(nodes_by_id.keys()) - reachable) if entry_id in nodes_by_id else []
+    if orphans:
+        violations.append(
+            f"UNREACHABLE_ORPHAN_NODE: {len(orphans)} node(s) {orphans[:4]} are unreachable from entry_node '{entry_id}'."
+        )
+
+    can_reach_ending: set[str] = set(ending_ids)
+    rq = deque(ending_ids)
+    while rq:
+        cur = rq.popleft()
+        for prev in reverse_adj.get(cur, []):
+            if prev not in can_reach_ending:
+                can_reach_ending.add(prev)
+                rq.append(prev)
+
+    trap_nodes = sorted((reachable if reachable else set(nodes_by_id.keys())) - can_reach_ending)
+    if ending_ids and trap_nodes:
+        violations.append(
+            f"INFINITE_TRAP_WITHOUT_ENDING: Node(s) {trap_nodes[:4]} have no directed path to any terminal ending."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return InteractiveBranchGraphReport(
+        passed=len(violations) == 0,
+        score=score,
+        violations=violations,
+        metrics={
+            "node_count": len(nodes_by_id),
+            "reachable_count": len(reachable),
+            "ending_count": len(ending_ids),
+            "orphan_count": len(orphans),
+            "trap_node_count": len(trap_nodes),
+        },
+    )
+
+
