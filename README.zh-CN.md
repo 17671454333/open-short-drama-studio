@@ -51,6 +51,8 @@
     - 面向 **微信小游戏、抖音小游戏、B站 Toy、TapTap、Itch.io 与 CrazyGames** 上架前运行时体检：强制校验分包总和上限（微信/抖音 `30MB`）与首屏可交互冷启动 `<= 3000ms`、移动端 WebGL 贴图尺寸 `<= 2048px` 与峰值 `DrawCall <= 150` 防黑屏掉帧、首帧点击手势解锁 `AudioContext.resume()`、同源沙箱 `<game_slug>:` 命名空间 `localStorage` 存档防串号、生产环境剥离 `vConsole`/`eruda` 调试探针，以及国内渠道必备的 48 字《健康游戏忠告》闪屏合规校验。
 17. **🔀 互动短剧/分支影游状态机拓扑与无缝预加载门禁 (`inspect_interactive_branch_graph`)**：
     - 面向 **B站互动视频、B站 Toy、微信/Steam 互动影游与分支剧情网页游戏** 打包前状态机审计：通过正向 BFS 揪出从入口不可达的孤岛废片节点（`UNREACHABLE_ORPHAN_NODE`，防白烧积分与撑爆包体）、反向 BFS 从全结局节点倒推捕获无出口死循环陷阱（`INFINITE_TRAP_WITHOUT_ENDING`）、拦截悬挂选项引用与非结局死胡同黑屏（`DANGLING_CHOICE_TARGET` / `NON_TERMINAL_DEAD_END`）、约束 9:16 竖屏触控选项数 `[2, 4]` 与 `[4.0s, 20.0s]` 限时抉择超时默认兜底分支（`is_default=True`），并强制对账下一跳视频 `preload_targets` 预加载清单（杜绝切镜解码黑屏闪烁）。
+18. **📱🖥️ 跨端 PC `.exe` 与 Android `.apk` 原生壳封装签名门禁 (`inspect_native_shell_package`)**：
+    - 面向 **TapTap、Google Play、Steam 与 Itch.io** 原生安装包提审审计：自动拦截未改默认模板包名（`com.example.*` / `org.godotengine.*` / `io.tauri.dev`）、测试证书/未签名包（`DEBUG_OR_UNSIGNED_RELEASE`）、生产包未关 F12 调试器导致 AI 短剧原片裸奔（`DEVTOOLS_EXPOSED_IN_RELEASE`）、Android `target_sdk < 34` 或漏打 64 位 `arm64-v8a` 架构、越权申请通讯录/短信/定位等敏感权限（`EXCESSIVE_DANGEROUS_PERMISSION`）、Windows 端未封包 `asar`/`pck` 源码裸露或缺失 `per_monitor_v2` 高分屏 DPI 清单导致 2K/4K 缩放模糊，以及低于 `512x512` 的商店图标。
 
 ---
 

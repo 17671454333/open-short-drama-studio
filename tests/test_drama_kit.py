@@ -17,6 +17,7 @@ from drama_kit import (
     inspect_series_paywall_pacing,
     inspect_game_release_readiness,
     inspect_interactive_branch_graph,
+    inspect_native_shell_package,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -969,6 +970,91 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("NON_TERMINAL_DEAD_END" in v for v in rep.violations))
         self.assertTrue(any("UNREACHABLE_ORPHAN_NODE" in v for v in rep.violations))
         self.assertTrue(any("INFINITE_TRAP_WITHOUT_ENDING" in v for v in rep.violations))
+
+    def test_inspect_native_shell_package_passes_compliant_apk_and_windows_exe(self):
+        rep_apk = inspect_native_shell_package(
+            {
+                "app_id": "studio.xingtu.blade_chronicle",
+                "signed": True,
+                "debuggable": False,
+                "keystore_type": "release",
+                "devtools_enabled": False,
+                "target_sdk": 35,
+                "abis": ["arm64-v8a", "armeabi-v7a"],
+                "permissions": ["android.permission.INTERNET", "VIBRATE"],
+                "icon_px": 512,
+                "package_mb": 142.0,
+            },
+            platform="android_apk",
+        )
+        self.assertTrue(rep_apk.passed)
+        self.assertEqual(rep_apk.score, 100)
+        self.assertEqual(rep_apk.violations, [])
+        self.assertTrue(rep_apk.metrics["has_arm64"])
+
+        rep_exe = inspect_native_shell_package(
+            {
+                "app_id": "studio.xingtu.blade_chronicle_pc",
+                "signed": True,
+                "debuggable": False,
+                "keystore_type": "authenticode",
+                "devtools_enabled": False,
+                "pck_embedded": True,
+                "dpi_awareness": "per_monitor_v2",
+                "icon_px": 1024,
+                "package_mb": 680.0,
+            },
+            platform="windows_exe",
+        )
+        self.assertTrue(rep_exe.passed)
+        self.assertEqual(rep_exe.score, 100)
+        self.assertEqual(rep_exe.violations, [])
+        self.assertTrue(rep_exe.metrics["archive_sealed"])
+
+    def test_inspect_native_shell_package_catches_signing_sdk_abi_perm_and_dpi_traps(self):
+        rep_bad_apk = inspect_native_shell_package(
+            {
+                "app_id": "com.example.mygame",
+                "signed": False,
+                "debuggable": True,
+                "keystore_type": "debug",
+                "devtools_enabled": True,
+                "target_sdk": 31,
+                "abis": ["armeabi-v7a"],
+                "permissions": ["android.permission.READ_CONTACTS", "READ_SMS"],
+                "icon_px": 192,
+                "package_mb": 620.0,
+            },
+            platform="android_apk",
+        )
+        self.assertFalse(rep_bad_apk.passed)
+        self.assertEqual(rep_bad_apk.score, 0)
+        self.assertTrue(any("PLACEHOLDER_APP_ID_REJECTED" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("DEBUG_OR_UNSIGNED_RELEASE" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("DEVTOOLS_EXPOSED_IN_RELEASE" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("ANDROID_TARGET_SDK_OUTDATED" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("MISSING_ARM64_ABI" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("EXCESSIVE_DANGEROUS_PERMISSION" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("APP_ICON_RESOLUTION_TOO_LOW" in v for v in rep_bad_apk.violations))
+        self.assertTrue(any("NATIVE_PACKAGE_SIZE_EXCEEDED" in v for v in rep_bad_apk.violations))
+
+        rep_bad_exe = inspect_native_shell_package(
+            {
+                "app_id": "BadAppId",
+                "signed": True,
+                "debuggable": False,
+                "asar_packed": False,
+                "pck_embedded": False,
+                "dpi_awareness": "unaware",
+                "icon_px": 512,
+                "package_mb": 120.0,
+            },
+            platform="windows_exe",
+        )
+        self.assertFalse(rep_bad_exe.passed)
+        self.assertTrue(any("INVALID_REVERSE_DOMAIN_APP_ID" in v for v in rep_bad_exe.violations))
+        self.assertTrue(any("UNPACKAGED_RAW_SOURCE_EXPOSED" in v for v in rep_bad_exe.violations))
+        self.assertTrue(any("WINDOWS_DPI_AWARENESS_MISSING" in v for v in rep_bad_exe.violations))
 
 
 if __name__ == "__main__":

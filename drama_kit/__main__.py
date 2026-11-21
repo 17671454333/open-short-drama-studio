@@ -19,6 +19,7 @@ from .gates import (
     inspect_series_paywall_pacing,
     inspect_game_release_readiness,
     inspect_interactive_branch_graph,
+    inspect_native_shell_package,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -319,6 +320,22 @@ def main() -> None:
             }
         )
 
+        native_shell_report = inspect_native_shell_package(
+            {
+                "app_id": "studio.xingtu.sword_sect_fmv",
+                "signed": True,
+                "debuggable": False,
+                "keystore_type": "release",
+                "devtools_enabled": False,
+                "target_sdk": 35,
+                "abis": ["arm64-v8a"],
+                "permissions": ["INTERNET", "VIBRATE"],
+                "icon_px": 512,
+                "package_mb": 128.5,
+            },
+            platform="android_apk",
+        )
+
         print(
             json.dumps(
                 {
@@ -420,6 +437,13 @@ def main() -> None:
                         "score": interactive_branch_report.score,
                         "violations": interactive_branch_report.violations,
                         "metrics": interactive_branch_report.metrics,
+                    },
+                    "native_shell_package_gate": {
+                        "passed": native_shell_report.passed,
+                        "score": native_shell_report.score,
+                        "platform": native_shell_report.platform,
+                        "violations": native_shell_report.violations,
+                        "metrics": native_shell_report.metrics,
                     },
                 },
                 ensure_ascii=False,

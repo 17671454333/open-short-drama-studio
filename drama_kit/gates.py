@@ -2088,3 +2088,175 @@ def inspect_interactive_branch_graph(
     )
 
 
+@dataclass
+class NativeShellPackageReport:
+    passed: bool
+    score: int
+    platform: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+NATIVE_SHELL_PACKAGE_LIMITS: Dict[str, Any] = {
+    "min_android_target_sdk": 34,
+    "min_icon_px": 512,
+    "max_package_mb": {
+        "android_apk": 500.0,
+        "windows_exe": 2048.0,
+    },
+    "placeholder_app_id_prefixes": (
+        "com.example.",
+        "com.test.",
+        "org.godotengine.",
+        "io.tauri.dev",
+        "com.electron.",
+    ),
+    "forbidden_android_permissions": frozenset({
+        "READ_CONTACTS",
+        "WRITE_CONTACTS",
+        "READ_SMS",
+        "SEND_SMS",
+        "READ_CALL_LOG",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_PHONE_STATE",
+        "REQUEST_INSTALL_PACKAGES",
+    }),
+    "valid_dpi_awareness": frozenset({
+        "per_monitor_v2",
+        "system",
+    }),
+}
+
+_REVERSE_DOMAIN_APP_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,}$")
+
+
+def inspect_native_shell_package(
+    manifest: Dict[str, Any],
+    platform: str = "android_apk",
+) -> NativeShellPackageReport:
+    """
+    Deterministic pre-release packaging & signing gate for Desktop Windows `.exe` (Steam/Itch.io)
+    and Mobile Android `.apk` (TapTap/Google Play) Interactive Short-Drama & Indie Game builds:
+    1. Reverse-domain App ID & template placeholder check: blocks template IDs (`com.example.*`,
+       `org.godotengine.*`, `io.tauri.dev`, `com.electron.*`) and malformed bundle identifiers
+       (`PLACEHOLDER_APP_ID_REJECTED`, `INVALID_REVERSE_DOMAIN_APP_ID`).
+    2. Release signing & production DevTools lock: rejects unsigned/debug-keystore builds or
+       `debuggable=True` (`DEBUG_OR_UNSIGNED_RELEASE`) and blocks `devtools_enabled=True` that
+       exposes raw AI video assets & game scripts via F12 (`DEVTOOLS_EXPOSED_IN_RELEASE`).
+    3. Android store ABI & Target SDK gate (`android_apk`): requires `target_sdk >= 34`
+       (`ANDROID_TARGET_SDK_OUTDATED`), mandatory 64-bit `arm64-v8a` ABI (`MISSING_ARM64_ABI`),
+       and zero intrusive spyware/privacy permissions (`EXCESSIVE_DANGEROUS_PERMISSION`).
+    4. Windows archive sealing & High-DPI gate (`windows_exe`): requires `asar_packed=True` or
+       `pck_embedded=True` (`UNPACKAGED_RAW_SOURCE_EXPOSED`) and `per_monitor_v2`/`system` DPI
+       awareness to prevent 150%/200% scaling blur & cursor offset (`WINDOWS_DPI_AWARENESS_MISSING`).
+    5. Store icon & package size ceiling: enforces `icon_px >= 512` (`APP_ICON_RESOLUTION_TOO_LOW`)
+       and platform package size bounds (`NATIVE_PACKAGE_SIZE_EXCEEDED`).
+    """
+    violations: List[str] = []
+    size_caps: Dict[str, float] = NATIVE_SHELL_PACKAGE_LIMITS["max_package_mb"]
+    plat_key = str(platform or "android_apk").strip().lower()
+    if plat_key not in size_caps:
+        violations.append(
+            f"UNSUPPORTED_NATIVE_PLATFORM: Platform '{plat_key}' not in {sorted(size_caps.keys())}; falling back to 'android_apk'."
+        )
+        plat_key = "android_apk"
+
+    app_id = str(manifest.get("app_id", "")).strip()
+    lower_id = app_id.lower()
+    placeholder_prefixes = NATIVE_SHELL_PACKAGE_LIMITS["placeholder_app_id_prefixes"]
+    if any(lower_id == p.rstrip(".") or lower_id.startswith(p) for p in placeholder_prefixes):
+        violations.append(
+            f"PLACEHOLDER_APP_ID_REJECTED: Bundle app_id '{app_id}' uses uncustomized template prefix."
+        )
+    elif not _REVERSE_DOMAIN_APP_ID_PATTERN.match(app_id):
+        violations.append(
+            f"INVALID_REVERSE_DOMAIN_APP_ID: Bundle app_id '{app_id}' must be a 3+ segment lowercase reverse-domain identifier."
+        )
+
+    is_signed = bool(manifest.get("signed", False))
+    is_debuggable = bool(manifest.get("debuggable", False))
+    ks_type = str(manifest.get("keystore_type", "release")).strip().lower()
+    if not is_signed or is_debuggable or ks_type in ("debug", "androiddebugkey", "none", "unsigned"):
+        violations.append(
+            f"DEBUG_OR_UNSIGNED_RELEASE: Package signed={is_signed}, debuggable={is_debuggable}, keystore_type='{ks_type}' is invalid for store release."
+        )
+
+    if bool(manifest.get("devtools_enabled", False)):
+        violations.append(
+            "DEVTOOLS_EXPOSED_IN_RELEASE: Production shell leaves inspector/F12 DevTools enabled, exposing raw video & script assets."
+        )
+
+    icon_min = int(NATIVE_SHELL_PACKAGE_LIMITS["min_icon_px"])
+    icon_px = int(manifest.get("icon_px", 0) or 0)
+    if icon_px < icon_min:
+        violations.append(
+            f"APP_ICON_RESOLUTION_TOO_LOW: Store icon {icon_px}px is below {icon_min}x{icon_min}px minimum."
+        )
+
+    max_mb = float(size_caps[plat_key])
+    pkg_mb = float(manifest.get("package_mb", 0.0) or 0.0)
+    if pkg_mb <= 0.0 or pkg_mb > max_mb:
+        violations.append(
+            f"NATIVE_PACKAGE_SIZE_EXCEEDED: Package size {pkg_mb:.1f}MB outside (0, {max_mb:.1f}MB] ceiling for '{plat_key}'."
+        )
+
+    flagged_perms: List[str] = []
+    abis: List[str] = []
+    target_sdk = int(manifest.get("target_sdk", 0) or 0)
+    archive_sealed = bool(manifest.get("asar_packed", False)) or bool(manifest.get("pck_embedded", False))
+    dpi_mode = str(manifest.get("dpi_awareness", "")).strip().lower()
+
+    if plat_key == "android_apk":
+        min_sdk = int(NATIVE_SHELL_PACKAGE_LIMITS["min_android_target_sdk"])
+        if target_sdk < min_sdk:
+            violations.append(
+                f"ANDROID_TARGET_SDK_OUTDATED: target_sdk={target_sdk} < {min_sdk} store submission baseline."
+            )
+        abis = [str(a).strip() for a in (manifest.get("abis") or []) if str(a).strip()]
+        if "arm64-v8a" not in abis:
+            violations.append(
+                f"MISSING_ARM64_ABI: Android build ABIs {abis} omit mandatory 64-bit 'arm64-v8a' architecture."
+            )
+        forbidden_perms = NATIVE_SHELL_PACKAGE_LIMITS["forbidden_android_permissions"]
+        for raw_perm in manifest.get("permissions") or []:
+            short_perm = str(raw_perm).strip().split(".")[-1].upper()
+            if short_perm in forbidden_perms and short_perm not in flagged_perms:
+                flagged_perms.append(short_perm)
+        if flagged_perms:
+            violations.append(
+                f"EXCESSIVE_DANGEROUS_PERMISSION: Package requests intrusive permission(s) {flagged_perms} triggering store privacy rejection."
+            )
+    else:
+        if not archive_sealed:
+            violations.append(
+                "UNPACKAGED_RAW_SOURCE_EXPOSED: Windows release must seal assets via asar_packed=True or pck_embedded=True."
+            )
+        valid_dpi = NATIVE_SHELL_PACKAGE_LIMITS["valid_dpi_awareness"]
+        if dpi_mode not in valid_dpi:
+            violations.append(
+                f"WINDOWS_DPI_AWARENESS_MISSING: dpi_awareness='{dpi_mode}' must be one of {sorted(valid_dpi)} to prevent High-DPI scaling blur."
+            )
+
+    score = max(0, 100 - len(violations) * 20)
+    return NativeShellPackageReport(
+        passed=len(violations) == 0,
+        score=score,
+        platform=plat_key,
+        violations=violations,
+        metrics={
+            "app_id": app_id,
+            "package_mb": pkg_mb,
+            "max_package_mb_limit": max_mb,
+            "icon_px": icon_px,
+            "signed_release": is_signed and not is_debuggable,
+            "target_sdk": target_sdk if plat_key == "android_apk" else None,
+            "has_arm64": ("arm64-v8a" in abis) if plat_key == "android_apk" else None,
+            "flagged_permission_count": len(flagged_perms),
+            "archive_sealed": archive_sealed if plat_key == "windows_exe" else None,
+        },
+    )
+
+
