@@ -53,6 +53,8 @@
     - 面向 **B站互动视频、B站 Toy、微信/Steam 互动影游与分支剧情网页游戏** 打包前状态机审计：通过正向 BFS 揪出从入口不可达的孤岛废片节点（`UNREACHABLE_ORPHAN_NODE`，防白烧积分与撑爆包体）、反向 BFS 从全结局节点倒推捕获无出口死循环陷阱（`INFINITE_TRAP_WITHOUT_ENDING`）、拦截悬挂选项引用与非结局死胡同黑屏（`DANGLING_CHOICE_TARGET` / `NON_TERMINAL_DEAD_END`）、约束 9:16 竖屏触控选项数 `[2, 4]` 与 `[4.0s, 20.0s]` 限时抉择超时默认兜底分支（`is_default=True`），并强制对账下一跳视频 `preload_targets` 预加载清单（杜绝切镜解码黑屏闪烁）。
 18. **📱🖥️ 跨端 PC `.exe` 与 Android `.apk` 原生壳封装签名门禁 (`inspect_native_shell_package`)**：
     - 面向 **TapTap、Google Play、Steam 与 Itch.io** 原生安装包提审审计：自动拦截未改默认模板包名（`com.example.*` / `org.godotengine.*` / `io.tauri.dev`）、测试证书/未签名包（`DEBUG_OR_UNSIGNED_RELEASE`）、生产包未关 F12 调试器导致 AI 短剧原片裸奔（`DEVTOOLS_EXPOSED_IN_RELEASE`）、Android `target_sdk < 34` 或漏打 64 位 `arm64-v8a` 架构、越权申请通讯录/短信/定位等敏感权限（`EXCESSIVE_DANGEROUS_PERMISSION`）、Windows 端未封包 `asar`/`pck` 源码裸露或缺失 `per_monitor_v2` 高分屏 DPI 清单导致 2K/4K 缩放模糊，以及低于 `512x512` 的商店图标。
+19. **🌍 多语种短剧出海译制配音与游戏本地化门禁 (`inspect_localization_dubbing_pack`)**：
+    - 面向 **ReelShort、DramaBox、TikTok、YouTube Shorts 与 Steam 多语言版本**（`en-US` / `es-ES` / `pt-BR` / `id-ID` / `ja-JP` / `ko-KR` / `ar-SA`）合成前确定性对账：自动拦截外语台词/UI 残留未翻译汉字（`UNTRANSLATED_CJK_LEAK`）、`{var}`/`%s` 格式化占位符错漏（`PLACEHOLDER_TOKEN_MISMATCH`）、跨集人名/宗门术语表译名漂移（`GLOSSARY_TERM_DRIFT`）、拉丁语系翻译膨胀单行爆框（`TRANSLATION_EXPANSION_OVERFLOW`）、配音语速超原片口型时间窗导致倍速鬼畜（`LOCALIZED_DUB_PACE_EXCEEDED`）、字体子集漏包目标语种导致 `□□□` 豆腐块（`FONT_LOCALE_COVERAGE_MISSING`）以及阿拉伯语未开 RTL 双向排版（`RTL_BIDI_LAYOUT_DISABLED`）。
 
 ---
 

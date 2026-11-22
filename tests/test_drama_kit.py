@@ -18,6 +18,7 @@ from drama_kit import (
     inspect_game_release_readiness,
     inspect_interactive_branch_graph,
     inspect_native_shell_package,
+    inspect_localization_dubbing_pack,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1055,6 +1056,77 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("INVALID_REVERSE_DOMAIN_APP_ID" in v for v in rep_bad_exe.violations))
         self.assertTrue(any("UNPACKAGED_RAW_SOURCE_EXPOSED" in v for v in rep_bad_exe.violations))
         self.assertTrue(any("WINDOWS_DPI_AWARENESS_MISSING" in v for v in rep_bad_exe.violations))
+
+    def test_inspect_localization_dubbing_pack_passes_clean_en_and_rtl_ar(self):
+        rep_en = inspect_localization_dubbing_pack(
+            {
+                "font_locales": ["en-US", "es-ES"],
+                "glossary": {"林玄": "Lin Xuan", "护宗大阵": "Guardian Array"},
+                "entries": [
+                    {
+                        "id": "D01",
+                        "source": "林玄，守住护宗大阵！",
+                        "target": "Lin Xuan, hold the Guardian Array!",
+                        "slot_duration_sec": 2.6,
+                    },
+                    {
+                        "id": "UI01",
+                        "source": "剩余灵石：{count}",
+                        "target": "Spirit Stones: {count}",
+                    },
+                ],
+            },
+            target_locale="en-US",
+        )
+        self.assertTrue(rep_en.passed)
+        self.assertEqual(rep_en.score, 100)
+        self.assertEqual(rep_en.violations, [])
+
+        rep_ar = inspect_localization_dubbing_pack(
+            {
+                "font_locales": ["ar-SA"],
+                "rtl_layout_enabled": True,
+                "entries": [
+                    {
+                        "id": "D01",
+                        "source": "立刻撤退！",
+                        "target": "انسحبوا على الفور!",
+                        "slot_duration_sec": 2.0,
+                    }
+                ],
+            },
+            target_locale="ar-SA",
+        )
+        self.assertTrue(rep_ar.passed)
+        self.assertTrue(rep_ar.metrics["requires_rtl"])
+
+    def test_inspect_localization_dubbing_pack_catches_cjk_placeholder_glossary_overflow_pace_and_rtl(self):
+        rep_bad = inspect_localization_dubbing_pack(
+            {
+                "font_locales": ["en-US"],
+                "rtl_layout_enabled": False,
+                "glossary": {"林玄": "Lin Xuan"},
+                "entries": [
+                    {
+                        "id": "D01",
+                        "source": "林玄获得了 {item}！",
+                        "target": "Master Xuan got 未翻译道具 TODO_TRANSLATE right now in this extremely overlong single vertical subtitle line!",
+                        "slot_duration_sec": 1.5,
+                    }
+                ],
+            },
+            target_locale="ar-SA",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("FONT_LOCALE_COVERAGE_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("RTL_BIDI_LAYOUT_DISABLED" in v for v in rep_bad.violations))
+        self.assertTrue(any("UNTRANSLATED_CJK_LEAK" in v for v in rep_bad.violations))
+        self.assertTrue(any("RAW_MT_MARKER_LEAK" in v for v in rep_bad.violations))
+        self.assertTrue(any("PLACEHOLDER_TOKEN_MISMATCH" in v for v in rep_bad.violations))
+        self.assertTrue(any("GLOSSARY_TERM_DRIFT" in v for v in rep_bad.violations))
+        self.assertTrue(any("TRANSLATION_EXPANSION_OVERFLOW" in v for v in rep_bad.violations))
+        self.assertTrue(any("LOCALIZED_DUB_PACE_EXCEEDED" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

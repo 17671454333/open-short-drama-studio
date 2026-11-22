@@ -20,6 +20,7 @@ from .gates import (
     inspect_game_release_readiness,
     inspect_interactive_branch_graph,
     inspect_native_shell_package,
+    inspect_localization_dubbing_pack,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -336,6 +337,28 @@ def main() -> None:
             platform="android_apk",
         )
 
+        localization_report = inspect_localization_dubbing_pack(
+            {
+                "font_locales": ["en-US", "es-ES"],
+                "glossary": {"林玄": "Lin Xuan", "护宗大阵": "Guardian Array"},
+                "entries": [
+                    {
+                        "id": "D01",
+                        "source": "林玄，这把剑归你了！",
+                        "target": "Lin Xuan, this blade is yours now!",
+                        "slot_duration_sec": 2.8,
+                    },
+                    {
+                        "id": "UI01",
+                        "source": "第 {ep} 集：击破护宗大阵",
+                        "target": "Ep {ep}: Shatter the Guardian Array",
+                        "slot_duration_sec": 0.0,
+                    },
+                ],
+            },
+            target_locale="en-US",
+        )
+
         print(
             json.dumps(
                 {
@@ -444,6 +467,13 @@ def main() -> None:
                         "platform": native_shell_report.platform,
                         "violations": native_shell_report.violations,
                         "metrics": native_shell_report.metrics,
+                    },
+                    "localization_dubbing_gate": {
+                        "passed": localization_report.passed,
+                        "score": localization_report.score,
+                        "locale": localization_report.locale,
+                        "violations": localization_report.violations,
+                        "metrics": localization_report.metrics,
                     },
                 },
                 ensure_ascii=False,

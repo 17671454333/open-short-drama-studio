@@ -2260,3 +2260,185 @@ def inspect_native_shell_package(
     )
 
 
+@dataclass
+class LocalizationDubbingReport:
+    passed: bool
+    score: int
+    locale: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+LOCALIZATION_DUBBING_LIMITS: Dict[str, Any] = {
+    "locales": {
+        "en-US": {"max_line_chars": 42, "max_chars_per_sec": 17.0, "rtl": False, "forbid_cjk": True},
+        "es-ES": {"max_line_chars": 42, "max_chars_per_sec": 18.0, "rtl": False, "forbid_cjk": True},
+        "pt-BR": {"max_line_chars": 42, "max_chars_per_sec": 18.0, "rtl": False, "forbid_cjk": True},
+        "id-ID": {"max_line_chars": 42, "max_chars_per_sec": 18.0, "rtl": False, "forbid_cjk": True},
+        "ja-JP": {"max_line_chars": 22, "max_chars_per_sec": 8.0, "rtl": False, "forbid_cjk": False},
+        "ko-KR": {"max_line_chars": 22, "max_chars_per_sec": 8.5, "rtl": False, "forbid_cjk": True},
+        "ar-SA": {"max_line_chars": 36, "max_chars_per_sec": 15.0, "rtl": True, "forbid_cjk": True},
+    }
+}
+
+_CJK_HAN_CHAR_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+_FORMAT_TOKEN_PATTERN = re.compile(r"\{[a-zA-Z0-9_]+\}|%(?:\d+\$)?[sdif]")
+_RAW_MT_MARKER_PATTERN = re.compile(r"(?i)\b(?:UNTRANSLATED|MT_ERROR|TODO_TRANSLATE)\b|\[\[(?:TODO|MISSING)\]\]")
+
+
+def inspect_localization_dubbing_pack(
+    pack: Dict[str, Any],
+    target_locale: str = "en-US",
+) -> LocalizationDubbingReport:
+    """
+    Deterministic multi-locale overseas short-drama dubbing & WebGame UI localization gate:
+    1. Locale profile & font glyph coverage: validates `target_locale` against supported overseas
+       profiles (`UNSUPPORTED_TARGET_LOCALE`), ensures `font_locales` covers the target script to
+       prevent `□□□` tofu boxes (`FONT_LOCALE_COVERAGE_MISSING`), and enforces `rtl_layout_enabled=True`
+       on RTL locales like `ar-SA` (`RTL_BIDI_LAYOUT_DISABLED`).
+    2. Untranslated CJK & raw MT marker leak check: blocks residual Chinese Han characters in non-CJK
+       dub/UI lines (`UNTRANSLATED_CJK_LEAK`) and uncleaned machine-translation error markers
+       (`RAW_MT_MARKER_LEAK`).
+    3. Format placeholder parity: reconciles `{var}` / `{0}` / `%s` interpolation tokens between
+       `source` and `target` strings to prevent runtime UI format crashes (`PLACEHOLDER_TOKEN_MISMATCH`).
+    4. Canonical glossary consistency: checks `glossary` mappings (`{"林玄": "Lin Xuan"}`) whenever a
+       source term appears so character/sect names never drift across episodes (`GLOSSARY_TERM_DRIFT`).
+    5. Vertical subtitle line-width & lip-sync dubbing speed corridor: blocks translated lines whose
+       longest wrapped segment exceeds `max_line_chars` (`TRANSLATION_EXPANSION_OVERFLOW`) or whose
+       spoken rate exceeds `max_chars_per_sec` within `slot_duration_sec` (`LOCALIZED_DUB_PACE_EXCEEDED`).
+    """
+    violations: List[str] = []
+    locale_map: Dict[str, Dict[str, Any]] = LOCALIZATION_DUBBING_LIMITS["locales"]
+    raw_loc = str(target_locale or "en-US").strip()
+    matched_locale = next((k for k in locale_map if k.lower() == raw_loc.lower()), "")
+    if not matched_locale:
+        violations.append(
+            f"UNSUPPORTED_TARGET_LOCALE: Locale '{raw_loc}' not in {sorted(locale_map.keys())}; falling back to 'en-US'."
+        )
+        matched_locale = "en-US"
+
+    profile = locale_map[matched_locale]
+    max_line_chars = int(profile["max_line_chars"])
+    max_cps = float(profile["max_chars_per_sec"])
+    requires_rtl = bool(profile["rtl"])
+    forbid_cjk = bool(profile["forbid_cjk"])
+
+    entries = [e for e in (pack.get("entries") or []) if isinstance(e, dict)]
+    if not entries:
+        return LocalizationDubbingReport(
+            passed=False,
+            score=0,
+            locale=matched_locale,
+            violations=violations + ["EMPTY_LOCALIZATION_PACK: Localization pack must contain at least 1 entry."],
+            metrics={"entry_count": 0},
+        )
+
+    font_locales = {str(x).strip().lower() for x in (pack.get("font_locales") or [matched_locale]) if str(x).strip()}
+    lang_prefix = matched_locale.split("-")[0].lower()
+    if matched_locale.lower() not in font_locales and lang_prefix not in font_locales:
+        violations.append(
+            f"FONT_LOCALE_COVERAGE_MISSING: Declared font_locales {sorted(font_locales)} omit '{matched_locale}', risking missing-glyph tofu boxes."
+        )
+
+    rtl_enabled = bool(pack.get("rtl_layout_enabled", False))
+    if requires_rtl and not rtl_enabled:
+        violations.append(
+            f"RTL_BIDI_LAYOUT_DISABLED: Locale '{matched_locale}' requires rtl_layout_enabled=True for bidirectional subtitle & UI rendering."
+        )
+
+    glossary: Dict[str, str] = {
+        str(k).strip(): str(v).strip()
+        for k, v in (pack.get("glossary") or {}).items()
+        if str(k).strip() and str(v).strip()
+    }
+
+    cjk_leak_ids: List[str] = []
+    marker_leak_ids: List[str] = []
+    placeholder_mismatch_ids: List[str] = []
+    glossary_drift_ids: List[str] = []
+    overflow_ids: List[str] = []
+    pace_exceeded_ids: List[str] = []
+    peak_cps = 0.0
+    max_observed_line = 0
+
+    for idx, item in enumerate(entries):
+        eid = str(item.get("id") or f"L{idx + 1:02d}").strip()
+        src = str(item.get("source", ""))
+        tgt = str(item.get("target", ""))
+
+        if forbid_cjk and _CJK_HAN_CHAR_PATTERN.search(tgt):
+            cjk_leak_ids.append(eid)
+
+        if not tgt.strip() or _RAW_MT_MARKER_PATTERN.search(tgt):
+            marker_leak_ids.append(eid)
+
+        src_tokens = sorted(_FORMAT_TOKEN_PATTERN.findall(src))
+        tgt_tokens = sorted(_FORMAT_TOKEN_PATTERN.findall(tgt))
+        if src_tokens != tgt_tokens:
+            placeholder_mismatch_ids.append(eid)
+
+        tgt_lower = tgt.lower()
+        for src_term, expected_term in glossary.items():
+            if src_term in src and expected_term.lower() not in tgt_lower:
+                glossary_drift_ids.append(f"{eid}({src_term}->{expected_term})")
+                break
+
+        lines = [seg.strip() for seg in tgt.splitlines() if seg.strip()] or [tgt.strip()]
+        longest_seg = max((len(seg) for seg in lines), default=0)
+        if longest_seg > max_observed_line:
+            max_observed_line = longest_seg
+        if longest_seg > max_line_chars:
+            overflow_ids.append(f"{eid}({longest_seg}>{max_line_chars})")
+
+        dur = float(item.get("slot_duration_sec", 0.0) or 0.0)
+        if dur > 0.0 and tgt.strip():
+            cps = len(tgt.strip()) / dur
+            if cps > peak_cps:
+                peak_cps = cps
+            if cps > max_cps:
+                pace_exceeded_ids.append(f"{eid}({cps:.1f}/s)")
+
+    if cjk_leak_ids:
+        violations.append(
+            f"UNTRANSLATED_CJK_LEAK: Residual source Han characters found in '{matched_locale}' entries: {cjk_leak_ids[:3]}."
+        )
+    if marker_leak_ids:
+        violations.append(
+            f"RAW_MT_MARKER_LEAK: Blank translation or raw MT error marker found in entries: {marker_leak_ids[:3]}."
+        )
+    if placeholder_mismatch_ids:
+        violations.append(
+            f"PLACEHOLDER_TOKEN_MISMATCH: Interpolation token mismatch between source and target in entries: {placeholder_mismatch_ids[:3]}."
+        )
+    if glossary_drift_ids:
+        violations.append(
+            f"GLOSSARY_TERM_DRIFT: Locked proper-noun glossary violated in entries: {glossary_drift_ids[:3]}."
+        )
+    if overflow_ids:
+        violations.append(
+            f"TRANSLATION_EXPANSION_OVERFLOW: Single-line width exceeds {max_line_chars} chars for '{matched_locale}': {overflow_ids[:3]}."
+        )
+    if pace_exceeded_ids:
+        violations.append(
+            f"LOCALIZED_DUB_PACE_EXCEEDED: Translated speech rate exceeds {max_cps:.1f} chars/s lip-sync ceiling: {pace_exceeded_ids[:3]}."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return LocalizationDubbingReport(
+        passed=len(violations) == 0,
+        score=score,
+        locale=matched_locale,
+        violations=violations,
+        metrics={
+            "entry_count": len(entries),
+            "max_observed_line_chars": max_observed_line,
+            "max_line_chars_limit": max_line_chars,
+            "peak_chars_per_sec": round(peak_cps, 2),
+            "max_chars_per_sec_limit": max_cps,
+            "glossary_term_count": len(glossary),
+            "requires_rtl": requires_rtl,
+        },
+    )
+
+
+
