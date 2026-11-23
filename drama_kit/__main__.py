@@ -21,6 +21,7 @@ from .gates import (
     inspect_interactive_branch_graph,
     inspect_native_shell_package,
     inspect_localization_dubbing_pack,
+    inspect_asset_license_provenance,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -359,6 +360,41 @@ def main() -> None:
             target_locale="en-US",
         )
 
+        provenance_report = inspect_asset_license_provenance(
+            {
+                "steam_ai_disclosure": "Pre-generated character portraits, cliffside backgrounds, and voiceover tracks were created with studio-licensed AI tools and reviewed for originality.",
+                "credits_text": "Sword Clash SFX by StudioFoley (CC-BY-4.0)",
+                "assets": [
+                    {
+                        "id": "FONT_SUBTITLE",
+                        "type": "font",
+                        "font_family": "Noto Sans CJK SC",
+                        "license_spdx": "OFL-1.1",
+                        "ai_generated": False,
+                        "sha256": "sha256:8f4e2b9a1c3d5e7f0011223344556677",
+                    },
+                    {
+                        "id": "SFX_CLASH_01",
+                        "type": "sfx",
+                        "license_spdx": "CC-BY-4.0",
+                        "attribution": "Sword Clash SFX by StudioFoley (CC-BY-4.0)",
+                        "content_id_safe": True,
+                        "ai_generated": False,
+                        "sha256": "sha256:1a2b3c4d5e6f77889900aabbccddeeff",
+                    },
+                    {
+                        "id": "KF_LIN_MASTER",
+                        "type": "image",
+                        "license_spdx": "Studio-Original",
+                        "ai_generated": True,
+                        "prompt_summary": "Original dark obsidian armored swordsman standing on basalt cliff",
+                        "sha256": "sha256:99887766554433221100ffeeddccbbaa",
+                    },
+                ],
+            },
+            release_channel="steam",
+        )
+
         print(
             json.dumps(
                 {
@@ -474,6 +510,13 @@ def main() -> None:
                         "locale": localization_report.locale,
                         "violations": localization_report.violations,
                         "metrics": localization_report.metrics,
+                    },
+                    "asset_license_provenance_gate": {
+                        "passed": provenance_report.passed,
+                        "score": provenance_report.score,
+                        "channel": provenance_report.channel,
+                        "violations": provenance_report.violations,
+                        "metrics": provenance_report.metrics,
                     },
                 },
                 ensure_ascii=False,

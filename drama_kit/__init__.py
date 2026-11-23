@@ -7,7 +7,7 @@ quality gate, vertical video caption safe-zone inspector & six-segment storyboar
 prompt standardizer for AI Short-Drama & Game Studios.
 """
 
-__version__ = "0.18.0"
+__version__ = "0.19.0"
 
 from .gates import (
     validate_episode_outline,
@@ -29,6 +29,7 @@ from .gates import (
     inspect_interactive_branch_graph,
     inspect_native_shell_package,
     inspect_localization_dubbing_pack,
+    inspect_asset_license_provenance,
     OutlineGateReport,
     BudgetEstimate,
     WebGameHealthReport,
@@ -47,6 +48,7 @@ from .gates import (
     InteractiveBranchGraphReport,
     NativeShellPackageReport,
     LocalizationDubbingReport,
+    AssetLicenseProvenanceReport,
     STUDIO_BGM_LIBRARY_PRESETS,
     PLATFORM_SAFE_MARGINS,
     COVER_RATIO_PRESETS,
@@ -62,6 +64,7 @@ from .gates import (
     INTERACTIVE_BRANCH_LIMITS,
     NATIVE_SHELL_PACKAGE_LIMITS,
     LOCALIZATION_DUBBING_LIMITS,
+    ASSET_PROVENANCE_LIMITS,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -91,6 +94,7 @@ __all__ = [
     "inspect_interactive_branch_graph",
     "inspect_native_shell_package",
     "inspect_localization_dubbing_pack",
+    "inspect_asset_license_provenance",
     "standardize_shot_prompt",
     "OutlineGateReport",
     "BudgetEstimate",
@@ -110,6 +114,7 @@ __all__ = [
     "InteractiveBranchGraphReport",
     "NativeShellPackageReport",
     "LocalizationDubbingReport",
+    "AssetLicenseProvenanceReport",
     "STUDIO_BGM_LIBRARY_PRESETS",
     "PLATFORM_SAFE_MARGINS",
     "COVER_RATIO_PRESETS",
@@ -125,6 +130,7 @@ __all__ = [
     "INTERACTIVE_BRANCH_LIMITS",
     "NATIVE_SHELL_PACKAGE_LIMITS",
     "LOCALIZATION_DUBBING_LIMITS",
+    "ASSET_PROVENANCE_LIMITS",
     "DEFAULT_NEGATIVE_PROMPT",
     "MODEL_STYLE_PRESETS",
 ]

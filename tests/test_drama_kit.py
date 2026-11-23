@@ -19,6 +19,7 @@ from drama_kit import (
     inspect_interactive_branch_graph,
     inspect_native_shell_package,
     inspect_localization_dubbing_pack,
+    inspect_asset_license_provenance,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1127,6 +1128,113 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("GLOSSARY_TERM_DRIFT" in v for v in rep_bad.violations))
         self.assertTrue(any("TRANSLATION_EXPANSION_OVERFLOW" in v for v in rep_bad.violations))
         self.assertTrue(any("LOCALIZED_DUB_PACE_EXCEEDED" in v for v in rep_bad.violations))
+
+    def test_inspect_asset_license_provenance_passes_clean_steam_and_short_video_builds(self):
+        rep_steam = inspect_asset_license_provenance(
+            {
+                "steam_ai_disclosure": "Pre-generated character portraits, scenery plates, and voiceover tracks were produced with licensed studio AI models.",
+                "credits_text": "Sword Foley Pack by OpenAudioLab (CC-BY-4.0)",
+                "assets": [
+                    {
+                        "id": "F01",
+                        "type": "font",
+                        "font_family": "Alibaba PuHuiTi 3.0",
+                        "license_spdx": "OFL-1.1",
+                        "sha256": "sha256:00112233445566778899aabbccddeeff",
+                    },
+                    {
+                        "id": "A01",
+                        "type": "sfx",
+                        "license_spdx": "CC-BY-4.0",
+                        "attribution": "Sword Foley Pack by OpenAudioLab (CC-BY-4.0)",
+                        "content_id_safe": True,
+                        "sha256": "sha256:ffeeddccbbaa99887766554433221100",
+                    },
+                    {
+                        "id": "IMG01",
+                        "type": "image",
+                        "license_spdx": "Studio-Original",
+                        "ai_generated": True,
+                        "prompt_summary": "Original ancient obsidian temple courtyard under rain",
+                        "sha256": "sha256:1234567890abcdef1234567890abcdef",
+                    },
+                ],
+            },
+            release_channel="steam",
+        )
+        self.assertTrue(rep_steam.passed)
+        self.assertEqual(rep_steam.score, 100)
+        self.assertEqual(rep_steam.violations, [])
+
+        rep_douyin = inspect_asset_license_provenance(
+            {
+                "platform_aigc_flag": True,
+                "assets": [
+                    {
+                        "id": "V01",
+                        "type": "video",
+                        "license_spdx": "Studio-Original",
+                        "ai_generated": True,
+                        "prompt_summary": "Original xianxia sword duel on misty peak",
+                        "sha256": "sha256:abcdef1234567890abcdef1234567890",
+                    }
+                ],
+            },
+            release_channel="douyin",
+        )
+        self.assertTrue(rep_douyin.passed)
+        self.assertEqual(rep_douyin.score, 100)
+
+    def test_inspect_asset_license_provenance_catches_font_nc_contentid_attr_ip_hash_and_aigc_traps(self):
+        rep_bad = inspect_asset_license_provenance(
+            {
+                "steam_ai_disclosure": "short",
+                "credits_text": "",
+                "assets": [
+                    {
+                        "id": "F_YAHEI",
+                        "type": "font",
+                        "font_family": "Microsoft YaHei",
+                        "license_spdx": "Unknown",
+                        "commercial_font_proof": False,
+                        "sha256": "",
+                    },
+                    {
+                        "id": "BGM_NC",
+                        "type": "bgm",
+                        "license_spdx": "CC-BY-NC-4.0",
+                        "content_id_safe": False,
+                        "sha256": "sha256:11112222333344445555666677778888",
+                    },
+                    {
+                        "id": "SFX_CCBY",
+                        "type": "sfx",
+                        "license_spdx": "CC-BY-4.0",
+                        "attribution": "Thunder SFX by StudioX",
+                        "content_id_safe": True,
+                        "sha256": "sha256:88887777666655554444333322221111",
+                    },
+                    {
+                        "id": "HERO_IMG",
+                        "type": "image",
+                        "license_spdx": "Studio-Original",
+                        "ai_generated": True,
+                        "prompt_summary": "Marvel Iron Man armor standing inside Hogwarts hall",
+                        "sha256": "sha256:9999aaaabbbbccccddddeeeeffff0000",
+                    },
+                ],
+            },
+            release_channel="steam",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("NON_COMMERCIAL_OR_UNKNOWN_LICENSE" in v for v in rep_bad.violations))
+        self.assertTrue(any("UNLICENSED_COMMERCIAL_FONT" in v for v in rep_bad.violations))
+        self.assertTrue(any("CONTENT_ID_CLAIM_RISK" in v for v in rep_bad.violations))
+        self.assertTrue(any("MISSING_REQUIRED_ATTRIBUTION" in v for v in rep_bad.violations))
+        self.assertTrue(any("PROTECTED_IP_OR_LIKENESS_LEAK" in v for v in rep_bad.violations))
+        self.assertTrue(any("MISSING_ASSET_CHECKSUM" in v for v in rep_bad.violations))
+        self.assertTrue(any("MISSING_PLATFORM_AI_DISCLOSURE" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

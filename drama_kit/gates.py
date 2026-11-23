@@ -2441,4 +2441,193 @@ def inspect_localization_dubbing_pack(
     )
 
 
+@dataclass
+class AssetLicenseProvenanceReport:
+    passed: bool
+    score: int
+    channel: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+ASSET_PROVENANCE_LIMITS: Dict[str, Any] = {
+    "commercial_safe_licenses": frozenset({
+        "MIT",
+        "Apache-2.0",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "ISC",
+        "CC0-1.0",
+        "CC-BY-4.0",
+        "OFL-1.1",
+        "Commercial-Paid",
+        "Studio-Original",
+    }),
+    "attribution_required_licenses": frozenset({
+        "CC-BY-4.0",
+    }),
+    "restricted_font_keywords": (
+        "microsoft yahei",
+        "微软雅黑",
+        "simsun",
+        "中易宋体",
+        "founder",
+        "方正",
+        "hanyi",
+        "汉仪",
+    ),
+    "aigc_flag_channels": frozenset({
+        "douyin",
+        "weixin_channels",
+        "xiaohongshu",
+        "bilibili",
+        "youtube",
+        "tiktok",
+    }),
+    "min_steam_disclosure_chars": 20,
+}
+
+_PROTECTED_IP_LIKENESS_PATTERN = re.compile(
+    r"(?i)\b(?:marvel|disney|pixar|nintendo|pokemon|pikachu|naruto|hogwarts|mickey\s+mouse|spider-?man|iron\s+man|batman|taylor\s+swift)\b"
+    r"|(?:漫威|迪士尼|任天堂|宝可梦|皮卡丘|火影忍者|哈利波特|钢铁侠|蜘蛛侠)"
+)
+_ASSET_SHA256_PATTERN = re.compile(r"^(?:sha256:[a-fA-F0-9]{16,64}|[a-fA-F0-9]{64})$")
+
+
+def inspect_asset_license_provenance(
+    manifest: Dict[str, Any],
+    release_channel: str = "steam",
+) -> AssetLicenseProvenanceReport:
+    """
+    Deterministic commercial asset provenance, font/audio copyright & AIGC disclosure gate:
+    1. Commercial SPDX license clearance: validates every asset's `license_spdx` against
+       `commercial_safe_licenses`, blocking `CC-BY-NC*`, `CC-BY-ND*`, `GPL-3.0-only`,
+       `Personal-Only`, or `Unknown` (`NON_COMMERCIAL_OR_UNKNOWN_LICENSE`).
+    2. Embedded/burned font copyright clearance: blocks restricted commercial system/foundry
+       fonts (`Microsoft YaHei`, `微软雅黑`, `方正`, `汉仪`) unless `commercial_font_proof=True`
+       is explicitly attached (`UNLICENSED_COMMERCIAL_FONT`).
+    3. Audio Content ID claim screening: blocks `bgm`/`sfx`/`audio` assets marked with
+       `content_id_safe=False` to prevent YouTube/TikTok/Bilibili muting (`CONTENT_ID_CLAIM_RISK`).
+    4. CC-BY attribution reconciliation: ensures every `CC-BY-4.0` asset provides `attribution`
+       and appears inside `credits_text` (`MISSING_REQUIRED_ATTRIBUTION`).
+    5. Platform AIGC disclosure & Valve Steam AI declaration: when any asset has `ai_generated=True`,
+       enforces `steam_ai_disclosure` (>= 20 chars) on `steam` or `platform_aigc_flag=True` on
+       short-video channels (`MISSING_PLATFORM_AI_DISCLOSURE`).
+    6. Protected third-party IP / celebrity likeness & SHA-256 provenance audit: blocks prompt/source
+       notes containing trademarked IP or celebrity names (`PROTECTED_IP_OR_LIKENESS_LEAK`) and
+       verifies valid `sha256` digests (`MISSING_ASSET_CHECKSUM`).
+    """
+    violations: List[str] = []
+    channel = str(release_channel or "steam").strip().lower() or "steam"
+    assets = [a for a in (manifest.get("assets") or []) if isinstance(a, dict)]
+    if not assets:
+        return AssetLicenseProvenanceReport(
+            passed=False,
+            score=0,
+            channel=channel,
+            violations=["EMPTY_ASSET_PROVENANCE_MANIFEST: Asset provenance manifest must list at least 1 asset."],
+            metrics={"asset_count": 0},
+        )
+
+    safe_licenses = ASSET_PROVENANCE_LIMITS["commercial_safe_licenses"]
+    attr_licenses = ASSET_PROVENANCE_LIMITS["attribution_required_licenses"]
+    restricted_fonts = ASSET_PROVENANCE_LIMITS["restricted_font_keywords"]
+    aigc_channels = ASSET_PROVENANCE_LIMITS["aigc_flag_channels"]
+    min_steam_chars = int(ASSET_PROVENANCE_LIMITS["min_steam_disclosure_chars"])
+
+    credits_text = str(manifest.get("credits_text") or "").strip()
+    bad_license_ids: List[str] = []
+    unlicensed_font_ids: List[str] = []
+    content_id_risk_ids: List[str] = []
+    missing_attr_ids: List[str] = []
+    ip_leak_ids: List[str] = []
+    missing_hash_ids: List[str] = []
+    ai_asset_count = 0
+
+    for idx, item in enumerate(assets):
+        aid = str(item.get("id") or f"A{idx + 1:02d}").strip()
+        atype = str(item.get("type") or "generic").strip().lower()
+        lic = str(item.get("license_spdx") or "").strip()
+        name_and_family = f"{item.get('name', '')} {item.get('font_family', '')}".strip().lower()
+        prompt_and_note = f"{item.get('prompt_summary', '')} {item.get('source_note', '')}".strip()
+        digest = str(item.get("sha256") or "").strip()
+
+        if bool(item.get("ai_generated", False)):
+            ai_asset_count += 1
+
+        if lic not in safe_licenses:
+            bad_license_ids.append(f"{aid}({lic or 'MISSING'})")
+
+        if atype == "font":
+            if any(kw in name_and_family for kw in restricted_fonts) and not bool(item.get("commercial_font_proof", False)):
+                unlicensed_font_ids.append(aid)
+
+        if atype in ("bgm", "sfx", "audio") and item.get("content_id_safe") is False:
+            content_id_risk_ids.append(aid)
+
+        if lic in attr_licenses:
+            attr_line = str(item.get("attribution") or "").strip()
+            if not attr_line or attr_line not in credits_text:
+                missing_attr_ids.append(aid)
+
+        if prompt_and_note and _PROTECTED_IP_LIKENESS_PATTERN.search(prompt_and_note):
+            ip_leak_ids.append(aid)
+
+        if not _ASSET_SHA256_PATTERN.match(digest):
+            missing_hash_ids.append(aid)
+
+    if bad_license_ids:
+        violations.append(
+            f"NON_COMMERCIAL_OR_UNKNOWN_LICENSE: Asset(s) carry non-commercial, copyleft, or unknown licenses: {bad_license_ids[:4]}."
+        )
+    if unlicensed_font_ids:
+        violations.append(
+            f"UNLICENSED_COMMERCIAL_FONT: Restricted font(s) {unlicensed_font_ids[:3]} lack commercial_font_proof=True (prefer OFL-1.1 Noto Sans CJK / Alibaba PuHuiTi)."
+        )
+    if content_id_risk_ids:
+        violations.append(
+            f"CONTENT_ID_CLAIM_RISK: Audio asset(s) {content_id_risk_ids[:3]} flagged content_id_safe=False, risking platform muting or demonetization."
+        )
+    if missing_attr_ids:
+        violations.append(
+            f"MISSING_REQUIRED_ATTRIBUTION: CC-BY asset(s) {missing_attr_ids[:3]} missing attribution entry inside credits_text."
+        )
+    if ip_leak_ids:
+        violations.append(
+            f"PROTECTED_IP_OR_LIKENESS_LEAK: Asset prompt/source metadata in {ip_leak_ids[:3]} references protected third-party IP or celebrity likeness."
+        )
+    if missing_hash_ids:
+        violations.append(
+            f"MISSING_ASSET_CHECKSUM: Asset(s) {missing_hash_ids[:3]} lack a valid SHA-256 provenance digest."
+        )
+
+    if ai_asset_count > 0:
+        if channel == "steam":
+            steam_disc = str(manifest.get("steam_ai_disclosure") or "").strip()
+            if len(steam_disc) < min_steam_chars:
+                violations.append(
+                    f"MISSING_PLATFORM_AI_DISCLOSURE: Release channel 'steam' with {ai_asset_count} AI-generated asset(s) requires steam_ai_disclosure (>= {min_steam_chars} chars)."
+                )
+        elif channel in aigc_channels:
+            if not bool(manifest.get("platform_aigc_flag", False)):
+                violations.append(
+                    f"MISSING_PLATFORM_AI_DISCLOSURE: Release channel '{channel}' with {ai_asset_count} AI-generated asset(s) requires platform_aigc_flag=True."
+                )
+
+    score = max(0, 100 - len(violations) * 20)
+    return AssetLicenseProvenanceReport(
+        passed=len(violations) == 0,
+        score=score,
+        channel=channel,
+        violations=violations,
+        metrics={
+            "asset_count": len(assets),
+            "ai_generated_count": ai_asset_count,
+            "attribution_verified_count": sum(1 for a in assets if str(a.get("license_spdx", "")).strip() in attr_licenses) - len(missing_attr_ids),
+            "content_id_risk_count": len(content_id_risk_ids),
+            "ip_leak_count": len(ip_leak_ids),
+        },
+    )
+
+
 
