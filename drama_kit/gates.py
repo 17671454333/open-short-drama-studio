@@ -2630,4 +2630,179 @@ def inspect_asset_license_provenance(
     )
 
 
+@dataclass
+class MatrixPublishManifestReport:
+    passed: bool
+    score: int
+    platform: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+MATRIX_PUBLISH_LIMITS: Dict[str, Any] = {
+    "platforms": {
+        "douyin": {"max_title_chars": 30, "max_hashtags": 5, "domestic_strict": True},
+        "weixin_channels": {"max_title_chars": 16, "max_hashtags": 5, "domestic_strict": True},
+        "xiaohongshu": {"max_title_chars": 20, "max_hashtags": 10, "domestic_strict": True},
+        "bilibili": {"max_title_chars": 80, "max_hashtags": 10, "domestic_strict": True},
+        "youtube": {"max_title_chars": 100, "max_hashtags": 15, "domestic_strict": False},
+        "tiktok": {"max_title_chars": 80, "max_hashtags": 8, "domestic_strict": False},
+    },
+    "cart_short_title_range": (4, 12),
+    "schedule_offset_min_range": (15, 20160),
+}
+
+_PUBLIC_PII_OR_LOCAL_PATH_PATTERN = re.compile(
+    r"(?:"
+    r"\b[A-Za-z]:\\[^\s\"'<>]+"
+    r"|/(?:Users|home)/[A-Za-z0-9._-]+/[^\s\"'<>]+"
+    r"|\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d{2,5})?\b"
+    r"|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
+    r"|(?<!\d)1[3-9]\d{9}(?!\d)"
+    r")"
+)
+_TRAFFIC_DIVERSION_SHADOWBAN_PATTERN = re.compile(
+    r"(?i)(?:加微|加v|vx\s*[:：]|v信|薇信|公众号搜|小红书搜|抖音搜|快手搜|私信领|扣\s*1\s*领)"
+)
+_TOY_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{2,47}$")
+_BILIBILI_BVID_PATTERN = re.compile(r"^BV[0-9A-Za-z]{10}$")
+_EPISODE_MARKER_PATTERN = re.compile(r"(?i)(?:第\s*\d+\s*[集话期]|\bep\.?\s*\d+|\bpart\s*\d+)")
+
+
+def inspect_matrix_publish_manifest(
+    manifest: Dict[str, Any],
+    platform: str = "bilibili",
+) -> MatrixPublishManifestReport:
+    """
+    Deterministic pre-dispatch matrix publishing, anti-shadowban & commerce/WebGame mount gate
+    across Douyin, WeChat Channels, Xiaohongshu, Bilibili (+ Toy interactive game), YouTube & TikTok:
+    1. Platform profile & title ceiling: validates `platform` and enforces per-channel headline length
+       caps (`16` chars WeChat Channels, `20` Xiaohongshu, `30` Douyin, `PLATFORM_TITLE_LENGTH_VIOLATION`).
+    2. Public metadata PII & local path DLP: blocks accidental leakage of local `C:\\`/`/Users/` file
+       paths, `localhost`/`127.0.0.1` dev URLs, email addresses, or 11-digit mobile numbers inside
+       public titles, descriptions, or pinned comments (`PUBLIC_METADATA_PII_OR_PATH_LEAK`).
+    3. Cross-platform diversion shadowban & watermark screen: blocks competitor watermarks
+       (`source_watermark_clean=False`) and domestic traffic-diversion trigger phrases (`加微`, `VX:`,
+       `公众号搜`, `私信领`) that trigger zero-impression shadowbans (`TRAFFIC_DIVERSION_OR_WATERMARK_TRAP`).
+    4. Hashtag quota & deduplication hygiene: enforces channel hashtag limits (`<= 5` Douyin/WeChat)
+       and rejects empty or duplicate tags (`HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION`).
+    5. Commerce cart & Bilibili Toy game mount validation: checks `[4, 12]` char bottom-left cart
+       titles + non-empty `pinned_comment_cta` when `commerce_cart_enabled=True`, and validates
+       `toy_slug` + `BV` video ID syntax when mounting a Bilibili Toy interactive WebGame
+       (`COMMERCE_OR_TOY_MOUNT_INVALID`).
+    6. Scheduler lead-time & serialized collection continuity: enforces `[15, 20160]` min scheduled
+       publish offsets (`INVALID_SCHEDULE_WINDOW`) and reconciles `collection_name` with `episode_index`
+       and explicit `第N集`/`Ep N` markers (`EPISODE_COLLECTION_INDEX_MISMATCH`).
+    """
+    violations: List[str] = []
+    profiles: Dict[str, Dict[str, Any]] = MATRIX_PUBLISH_LIMITS["platforms"]
+    plat_key = str(platform or "bilibili").strip().lower()
+    if plat_key not in profiles:
+        violations.append(
+            f"UNSUPPORTED_MATRIX_PLATFORM: Platform '{plat_key}' not in {sorted(profiles.keys())}; falling back to 'douyin'."
+        )
+        plat_key = "douyin"
+
+    spec = profiles[plat_key]
+    max_title_chars = int(spec["max_title_chars"])
+    max_hashtags = int(spec["max_hashtags"])
+    domestic_strict = bool(spec["domestic_strict"])
+
+    title = str(manifest.get("title") or "").strip()
+    description = str(manifest.get("description") or "").strip()
+    pinned_cta = str(manifest.get("pinned_comment_cta") or "").strip()
+
+    if not title or len(title) > max_title_chars:
+        violations.append(
+            f"PLATFORM_TITLE_LENGTH_VIOLATION: Title length {len(title)} outside [1, {max_title_chars}] chars for '{plat_key}'."
+        )
+
+    combined_public_text = f"{title}\n{description}\n{pinned_cta}"
+    if _PUBLIC_PII_OR_LOCAL_PATH_PATTERN.search(combined_public_text):
+        violations.append(
+            "PUBLIC_METADATA_PII_OR_PATH_LEAK: Public title/description/comment contains unredacted local path, localhost URL, email, or phone number."
+        )
+
+    watermark_clean = manifest.get("source_watermark_clean", True) is not False
+    has_diversion_phrase = bool(domestic_strict and _TRAFFIC_DIVERSION_SHADOWBAN_PATTERN.search(combined_public_text))
+    if not watermark_clean or has_diversion_phrase:
+        violations.append(
+            f"TRAFFIC_DIVERSION_OR_WATERMARK_TRAP: watermark_clean={watermark_clean}, diversion_phrase={has_diversion_phrase} risks platform shadowban."
+        )
+
+    raw_tags = list(manifest.get("hashtags") or [])
+    normalized_tags: List[str] = []
+    has_empty_or_dup_tag = False
+    for raw_tag in raw_tags:
+        clean_tag = str(raw_tag or "").strip().lstrip("#").strip().lower()
+        if not clean_tag or clean_tag in normalized_tags:
+            has_empty_or_dup_tag = True
+        else:
+            normalized_tags.append(clean_tag)
+    if len(raw_tags) > max_hashtags or has_empty_or_dup_tag:
+        violations.append(
+            f"HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION: Hashtag count {len(raw_tags)} (limit {max_hashtags}) or empty/duplicate tag detected."
+        )
+
+    cart_enabled = bool(manifest.get("commerce_cart_enabled", False))
+    cart_min, cart_max = MATRIX_PUBLISH_LIMITS["cart_short_title_range"]
+    cart_title = str(manifest.get("cart_short_title") or "").strip()
+    toy_mount = manifest.get("toy_game_mount")
+    mount_errors: List[str] = []
+    if cart_enabled:
+        if not (cart_min <= len(cart_title) <= cart_max) or not pinned_cta:
+            mount_errors.append(f"cart_short_title({len(cart_title)} chars)/pinned_comment_cta invalid")
+    if toy_mount is not None:
+        if plat_key != "bilibili" or not isinstance(toy_mount, dict):
+            mount_errors.append("toy_game_mount only valid as dict on 'bilibili'")
+        else:
+            slug = str(toy_mount.get("toy_slug") or "").strip()
+            bvid = str(toy_mount.get("bvid") or "").strip()
+            if not _TOY_SLUG_PATTERN.match(slug):
+                mount_errors.append(f"invalid toy_slug='{slug}'")
+            if bvid and not _BILIBILI_BVID_PATTERN.match(bvid):
+                mount_errors.append(f"invalid bvid='{bvid}'")
+    if mount_errors:
+        violations.append(
+            f"COMMERCE_OR_TOY_MOUNT_INVALID: Conversion mount configuration failed check(s): {mount_errors}."
+        )
+
+    sched_raw = manifest.get("scheduled_offset_min")
+    sched_min_lo, sched_min_hi = MATRIX_PUBLISH_LIMITS["schedule_offset_min_range"]
+    sched_val = 0
+    if sched_raw is not None:
+        sched_val = int(sched_raw)
+        if sched_val != 0 and not (sched_min_lo <= sched_val <= sched_min_hi):
+            violations.append(
+                f"INVALID_SCHEDULE_WINDOW: scheduled_offset_min={sched_val} must be 0 (immediate) or within [{sched_min_lo}, {sched_min_hi}] minutes."
+            )
+
+    collection_name = str(manifest.get("collection_name") or "").strip()
+    ep_idx = int(manifest.get("episode_index") or 0)
+    if collection_name:
+        if ep_idx < 1 or not _EPISODE_MARKER_PATTERN.search(f"{title} {description}"):
+            violations.append(
+                f"EPISODE_COLLECTION_INDEX_MISMATCH: Collection '{collection_name}' requires episode_index >= 1 and explicit '第N集'/'Ep N' marker."
+            )
+
+    score = max(0, 100 - len(violations) * 20)
+    return MatrixPublishManifestReport(
+        passed=len(violations) == 0,
+        score=score,
+        platform=plat_key,
+        violations=violations,
+        metrics={
+            "title_length": len(title),
+            "max_title_chars_limit": max_title_chars,
+            "hashtag_count": len(normalized_tags),
+            "max_hashtags_limit": max_hashtags,
+            "commerce_cart_enabled": cart_enabled,
+            "has_toy_mount": toy_mount is not None,
+            "scheduled_offset_min": sched_val,
+            "episode_index": ep_idx if collection_name else None,
+        },
+    )
+
+
+
 

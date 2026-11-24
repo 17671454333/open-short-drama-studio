@@ -22,6 +22,7 @@ from .gates import (
     inspect_native_shell_package,
     inspect_localization_dubbing_pack,
     inspect_asset_license_provenance,
+    inspect_matrix_publish_manifest,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -395,6 +396,23 @@ def main() -> None:
             release_channel="steam",
         )
 
+        matrix_publish_report = inspect_matrix_publish_manifest(
+            {
+                "title": "第1集：断剑重铸之日，护宗大阵谁敢拦我！",
+                "description": "原创国风仙侠互动短剧，点击下方试玩同款御剑抉择小游戏。",
+                "hashtags": ["#AI短剧", "#国风仙侠", "#互动影游", "#原创动画"],
+                "source_watermark_clean": True,
+                "collection_name": "断剑重铸录",
+                "episode_index": 1,
+                "scheduled_offset_min": 60,
+                "toy_game_mount": {
+                    "toy_slug": "sword-sect-trial",
+                    "bvid": "BV1xx411c7mD",
+                },
+            },
+            platform="bilibili",
+        )
+
         print(
             json.dumps(
                 {
@@ -517,6 +535,13 @@ def main() -> None:
                         "channel": provenance_report.channel,
                         "violations": provenance_report.violations,
                         "metrics": provenance_report.metrics,
+                    },
+                    "matrix_publish_manifest_gate": {
+                        "passed": matrix_publish_report.passed,
+                        "score": matrix_publish_report.score,
+                        "platform": matrix_publish_report.platform,
+                        "violations": matrix_publish_report.violations,
+                        "metrics": matrix_publish_report.metrics,
                     },
                 },
                 ensure_ascii=False,

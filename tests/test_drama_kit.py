@@ -20,6 +20,7 @@ from drama_kit import (
     inspect_native_shell_package,
     inspect_localization_dubbing_pack,
     inspect_asset_license_provenance,
+    inspect_matrix_publish_manifest,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1235,6 +1236,70 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("PROTECTED_IP_OR_LIKENESS_LEAK" in v for v in rep_bad.violations))
         self.assertTrue(any("MISSING_ASSET_CHECKSUM" in v for v in rep_bad.violations))
         self.assertTrue(any("MISSING_PLATFORM_AI_DISCLOSURE" in v for v in rep_bad.violations))
+
+    def test_inspect_matrix_publish_manifest_passes_clean_bilibili_toy_and_weixin_cart(self):
+        rep_bili = inspect_matrix_publish_manifest(
+            {
+                "title": "第1集：断剑重铸之日，护宗大阵谁敢拦我！",
+                "description": "原创国风仙侠互动短剧，点击下方入口试玩御剑分支小游戏。",
+                "hashtags": ["#AI短剧", "#互动影游", "#国风仙侠"],
+                "source_watermark_clean": True,
+                "collection_name": "断剑重铸录",
+                "episode_index": 1,
+                "scheduled_offset_min": 45,
+                "toy_game_mount": {
+                    "toy_slug": "sword-sect-trial",
+                    "bvid": "BV1xx411c7mD",
+                },
+            },
+            platform="bilibili",
+        )
+        self.assertTrue(rep_bili.passed)
+        self.assertEqual(rep_bili.score, 100)
+        self.assertEqual(rep_bili.violations, [])
+
+        rep_wx = inspect_matrix_publish_manifest(
+            {
+                "title": "第2集：寒窑十载无人问",
+                "description": "历史人物故事连载第二集",
+                "hashtags": ["#历史故事", "#人物传记"],
+                "commerce_cart_enabled": True,
+                "cart_short_title": "资治通鉴精装全译",
+                "pinned_comment_cta": "同款精装典藏版已在左下角书单上架，点击即可查看目录。",
+                "collection_name": "千古兴衰录",
+                "episode_index": 2,
+            },
+            platform="weixin_channels",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+
+    def test_inspect_matrix_publish_manifest_catches_pii_diversion_tags_mount_schedule_and_collection_traps(self):
+        rep_bad = inspect_matrix_publish_manifest(
+            {
+                "title": "超级无敌超长标题超过十六个字限制而且没有集数标识直接发视频号测试",
+                "description": "渲染目录 C:\\Users\\creator\\Desktop\\out.mp4 预览 http://127.0.0.1:3430 加微 vx: demo123 私信领全集",
+                "hashtags": ["#短剧", "#短剧", "#仙侠", "#爽剧", "#逆袭", "#玄幻"],
+                "source_watermark_clean": False,
+                "commerce_cart_enabled": True,
+                "cart_short_title": "太短",
+                "pinned_comment_cta": "",
+                "toy_game_mount": {"toy_slug": "BAD SLUG!", "bvid": "invalid"},
+                "scheduled_offset_min": 5,
+                "collection_name": "断剑重铸录",
+                "episode_index": 0,
+            },
+            platform="weixin_channels",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("PLATFORM_TITLE_LENGTH_VIOLATION" in v for v in rep_bad.violations))
+        self.assertTrue(any("PUBLIC_METADATA_PII_OR_PATH_LEAK" in v for v in rep_bad.violations))
+        self.assertTrue(any("TRAFFIC_DIVERSION_OR_WATERMARK_TRAP" in v for v in rep_bad.violations))
+        self.assertTrue(any("HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION" in v for v in rep_bad.violations))
+        self.assertTrue(any("COMMERCE_OR_TOY_MOUNT_INVALID" in v for v in rep_bad.violations))
+        self.assertTrue(any("INVALID_SCHEDULE_WINDOW" in v for v in rep_bad.violations))
+        self.assertTrue(any("EPISODE_COLLECTION_INDEX_MISMATCH" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

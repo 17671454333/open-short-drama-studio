@@ -57,6 +57,8 @@
     - 面向 **ReelShort、DramaBox、TikTok、YouTube Shorts 与 Steam 多语言版本**（`en-US` / `es-ES` / `pt-BR` / `id-ID` / `ja-JP` / `ko-KR` / `ar-SA`）合成前确定性对账：自动拦截外语台词/UI 残留未翻译汉字（`UNTRANSLATED_CJK_LEAK`）、`{var}`/`%s` 格式化占位符错漏（`PLACEHOLDER_TOKEN_MISMATCH`）、跨集人名/宗门术语表译名漂移（`GLOSSARY_TERM_DRIFT`）、拉丁语系翻译膨胀单行爆框（`TRANSLATION_EXPANSION_OVERFLOW`）、配音语速超原片口型时间窗导致倍速鬼畜（`LOCALIZED_DUB_PACE_EXCEEDED`）、字体子集漏包目标语种导致 `□□□` 豆腐块（`FONT_LOCALE_COVERAGE_MISSING`）以及阿拉伯语未开 RTL 双向排版（`RTL_BIDI_LAYOUT_DISABLED`）。
 20. **🛡️ 商用资产版权溯源与 Steam/多平台 AIGC 披露合规门禁 (`inspect_asset_license_provenance`)**：
     - 面向 **Steam、YouTube、TikTok、ReelShort、抖音、视频号与 TapTap** 提审前版权排雷与 AIGC 披露核验：自动拦截非商用/传染性/未知协议混入（`CC-BY-NC` / `CC-BY-ND` / `GPL-3.0-only`、`NON_COMMERCIAL_OR_UNKNOWN_LICENSE`）、未获商业授权封装 `微软雅黑`/`方正`/`汉仪` 字体（`UNLICENSED_COMMERCIAL_FONT`）、YouTube/TikTok Content ID 音乐静音索赔风险（`CONTENT_ID_CLAIM_RISK`）、`CC-BY-4.0` 开源音效漏挂鸣谢表（`MISSING_REQUIRED_ATTRIBUTION`）、生图提示词残留漫威/迪士尼/任天堂等受保护商标或真人明星肖像词（`PROTECTED_IP_OR_LIKENESS_LEAK`）、交付资产缺失 SHA-256 指纹（`MISSING_ASSET_CHECKSUM`）以及漏填 Valve `steam_ai_disclosure` 或短视频 `platform_aigc_flag` 原生合成标识（`MISSING_PLATFORM_AI_DISCLOSURE`）。
+21. **🚀 多平台矩阵发布防限流、挂车与 B站 Toy 互动影游绑定门禁 (`inspect_matrix_publish_manifest`)**：
+    - 面向 **抖音、视频号、小红书、B站（含 Toy 互动游戏挂载）、YouTube 与 TikTok** 分发前元数据确定性审计：按渠道校验标题字数红线（视频号 `<= 16` 字、小红书 `<= 20` 字、抖音 `<= 30` 字）、拦截公开文案与置顶评论误带本机 `C:\`/`/Users/` 路径、`localhost` 调试地址、邮箱或手机号（`PUBLIC_METADATA_PII_OR_PATH_LEAK`）、拦截跨平台废片水印与国内导流限流黑词（`加微`/`VX:`/`公众号搜`/`私信领`、`TRAFFIC_DIVERSION_OR_WATERMARK_TRAP`）、校验话题标签上限与重复堆砌（`HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION`）、核验视频号 `[4, 12]` 字左下角挂车短标题与 B站 `toy_slug`/`BV` 号互动游戏绑定格式（`COMMERCE_OR_TOY_MOUNT_INVALID`），并对账 `[15, 20160]` 分钟定时发布窗口与短剧合集 `第N集`/`Ep N` 连载序号（`EPISODE_COLLECTION_INDEX_MISMATCH`）。
 
 ---
 
