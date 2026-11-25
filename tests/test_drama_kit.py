@@ -21,6 +21,7 @@ from drama_kit import (
     inspect_localization_dubbing_pack,
     inspect_asset_license_provenance,
     inspect_matrix_publish_manifest,
+    inspect_monetization_iap_compliance,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1300,6 +1301,85 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("COMMERCE_OR_TOY_MOUNT_INVALID" in v for v in rep_bad.violations))
         self.assertTrue(any("INVALID_SCHEDULE_WINDOW" in v for v in rep_bad.violations))
         self.assertTrue(any("EPISODE_COLLECTION_INDEX_MISMATCH" in v for v in rep_bad.violations))
+
+    def test_inspect_monetization_iap_compliance_passes_clean_wechat_and_steam_gacha(self):
+        rep_wx = inspect_monetization_iap_compliance(
+            {
+                "episode_unlock_paywall": True,
+                "real_name_auth_required": True,
+                "minor_spending_cap_enforced": True,
+                "restore_purchases_supported": True,
+                "server_side_receipt_verify": True,
+                "skus": [
+                    {"sku_id": "season1.full_unlock", "price": 18.0, "kind": "season_pass"},
+                    {"sku_id": "jade.pack_60", "price": 6.0, "kind": "consumable"},
+                ],
+                "rewarded_ads": {
+                    "enabled": True,
+                    "cooldown_sec": 120,
+                    "first_ad_delay_sec": 45,
+                    "daily_cap": 12,
+                    "no_fill_graceful_fallback": True,
+                },
+            },
+            store="wechat_minigame",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+        self.assertEqual(rep_wx.violations, [])
+
+        rep_steam = inspect_monetization_iap_compliance(
+            {
+                "restore_purchases_supported": True,
+                "server_side_receipt_verify": True,
+                "skus": [
+                    {"sku_id": "dlc.ost_artbook", "price": 29.0, "kind": "non_consumable"},
+                ],
+                "has_lootbox_or_gacha": True,
+                "pity_cap": 80,
+                "probability_table": {"SSR": 2.0, "SR": 13.0, "R": 85.0},
+            },
+            store="steam",
+        )
+        self.assertTrue(rep_steam.passed)
+        self.assertEqual(rep_steam.score, 100)
+
+    def test_inspect_monetization_iap_compliance_catches_minor_sku_receipt_gacha_and_ad_traps(self):
+        rep_bad = inspect_monetization_iap_compliance(
+            {
+                "episode_unlock_paywall": True,
+                "real_name_auth_required": False,
+                "minor_spending_cap_enforced": False,
+                "restore_purchases_supported": False,
+                "server_side_receipt_verify": False,
+                "skus": [
+                    {
+                        "sku_id": "season1.full_unlock",
+                        "price": 0.0,
+                        "kind": "season_pass",
+                        "prechecked_auto_renew": True,
+                    }
+                ],
+                "has_lootbox_or_gacha": True,
+                "pity_cap": 0,
+                "probability_table": {"SSR": 5.0, "R": 50.0},
+                "rewarded_ads": {
+                    "enabled": True,
+                    "cooldown_sec": 15,
+                    "first_ad_delay_sec": 0,
+                    "daily_cap": 99,
+                    "no_fill_graceful_fallback": False,
+                },
+            },
+            store="douyin_minigame",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("MINOR_ANTI_ADDICTION_UNENFORCED" in v for v in rep_bad.violations))
+        self.assertTrue(any("IAP_SKU_PRICING_OR_RESTORE_TRAP" in v for v in rep_bad.violations))
+        self.assertTrue(any("CLIENT_ONLY_RECEIPT_TRUST_RISK" in v for v in rep_bad.violations))
+        self.assertTrue(any("GACHA_PROBABILITY_DISCLOSURE_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

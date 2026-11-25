@@ -59,6 +59,8 @@
     - 面向 **Steam、YouTube、TikTok、ReelShort、抖音、视频号与 TapTap** 提审前版权排雷与 AIGC 披露核验：自动拦截非商用/传染性/未知协议混入（`CC-BY-NC` / `CC-BY-ND` / `GPL-3.0-only`、`NON_COMMERCIAL_OR_UNKNOWN_LICENSE`）、未获商业授权封装 `微软雅黑`/`方正`/`汉仪` 字体（`UNLICENSED_COMMERCIAL_FONT`）、YouTube/TikTok Content ID 音乐静音索赔风险（`CONTENT_ID_CLAIM_RISK`）、`CC-BY-4.0` 开源音效漏挂鸣谢表（`MISSING_REQUIRED_ATTRIBUTION`）、生图提示词残留漫威/迪士尼/任天堂等受保护商标或真人明星肖像词（`PROTECTED_IP_OR_LIKENESS_LEAK`）、交付资产缺失 SHA-256 指纹（`MISSING_ASSET_CHECKSUM`）以及漏填 Valve `steam_ai_disclosure` 或短视频 `platform_aigc_flag` 原生合成标识（`MISSING_PLATFORM_AI_DISCLOSURE`）。
 21. **🚀 多平台矩阵发布防限流、挂车与 B站 Toy 互动影游绑定门禁 (`inspect_matrix_publish_manifest`)**：
     - 面向 **抖音、视频号、小红书、B站（含 Toy 互动游戏挂载）、YouTube 与 TikTok** 分发前元数据确定性审计：按渠道校验标题字数红线（视频号 `<= 16` 字、小红书 `<= 20` 字、抖音 `<= 30` 字）、拦截公开文案与置顶评论误带本机 `C:\`/`/Users/` 路径、`localhost` 调试地址、邮箱或手机号（`PUBLIC_METADATA_PII_OR_PATH_LEAK`）、拦截跨平台废片水印与国内导流限流黑词（`加微`/`VX:`/`公众号搜`/`私信领`、`TRAFFIC_DIVERSION_OR_WATERMARK_TRAP`）、校验话题标签上限与重复堆砌（`HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION`）、核验视频号 `[4, 12]` 字左下角挂车短标题与 B站 `toy_slug`/`BV` 号互动游戏绑定格式（`COMMERCE_OR_TOY_MOUNT_INVALID`），并对账 `[15, 20160]` 分钟定时发布窗口与短剧合集 `第N集`/`Ep N` 连载序号（`EPISODE_COLLECTION_INDEX_MISMATCH`）。
+22. **💳 内购计费、激励广告频控与防沉迷实名合规门禁 (`inspect_monetization_iap_compliance`)**：
+    - 面向 **微信小游戏、抖音小游戏、TapTap、B站 Toy、Google Play、App Store 与 Steam** 商业化提审确定性审计：强制国内渠道付费解锁接入实名认证与未成年人充值限额硬锁（`MINOR_ANTI_ADDICTION_UNENFORCED`）、校验 SKU 价格合法性与买断制/季票恢复购买入口并拦截默认勾选自动续费暗黑模式（`IAP_SKU_PRICING_OR_RESTORE_TRAP`）、拦截纯客户端本地验单导致 0 元改档破解（`CLIENT_ONLY_RECEIPT_TRUST_RISK`）、核验抽卡/盲盒 `100%` 概率公示表与 `<= 180` 抽硬保底上限（`GACHA_PROBABILITY_DISCLOSURE_MISSING`），并约束激励视频广告 `>= 90s` 冷却间隔、开局 `>= 30s` 免打扰保护期及无填充优雅降级兜底（`REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION`）。
 
 ---
 

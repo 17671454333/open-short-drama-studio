@@ -2804,5 +2804,170 @@ def inspect_matrix_publish_manifest(
     )
 
 
+@dataclass
+class MonetizationIapReport:
+    passed: bool
+    score: int
+    store: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+MONETIZATION_IAP_LIMITS: Dict[str, Any] = {
+    "stores": {
+        "wechat_minigame": {"domestic_minor_cap": True, "requires_restore": True},
+        "douyin_minigame": {"domestic_minor_cap": True, "requires_restore": True},
+        "taptap": {"domestic_minor_cap": True, "requires_restore": True},
+        "bilibili_toy": {"domestic_minor_cap": True, "requires_restore": True},
+        "google_play": {"domestic_minor_cap": False, "requires_restore": True},
+        "app_store": {"domestic_minor_cap": False, "requires_restore": True},
+        "steam": {"domestic_minor_cap": False, "requires_restore": True},
+    },
+    "min_ad_cooldown_sec": 90,
+    "min_first_ad_delay_sec": 30,
+    "max_daily_rewarded_ads": 30,
+    "max_gacha_pity_cap": 180,
+}
+
+_SKU_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
+
+
+def inspect_monetization_iap_compliance(
+    config: Dict[str, Any],
+    store: str = "wechat_minigame",
+) -> MonetizationIapReport:
+    """
+    Deterministic pre-submission IAP billing, rewarded-ad cadence & minor anti-addiction compliance
+    gate across WeChat/Douyin Mini-Games, TapTap, Bilibili Toy, Google Play, App Store & Steam:
+    1. Store profile validation: verifies `store` against supported storefronts
+       (`UNSUPPORTED_MONETIZATION_STORE`).
+    2. Domestic minor anti-addiction & real-name spending cap: requires `real_name_auth_required=True`
+       and `minor_spending_cap_enforced=True` whenever paid SKUs or episode unlock paywalls are active
+       on domestic portals (`MINOR_ANTI_ADDICTION_UNENFORCED`).
+    3. IAP SKU table, restore-purchases & anti-dark-pattern check: validates unique lowercase `sku_id`,
+       positive prices, rejects pre-checked auto-renewal (`prechecked_auto_renew=True`), and requires
+       `restore_purchases_supported=True` when `non_consumable` / `season_pass` SKUs exist
+       (`IAP_SKU_PRICING_OR_RESTORE_TRAP`).
+    4. Server-side receipt verification: blocks client-only payment trust (`server_side_receipt_verify=False`)
+       when paid SKUs or episode paywalls exist (`CLIENT_ONLY_RECEIPT_TRUST_RISK`).
+    5. Lootbox / gacha odds & pity disclosure: when `has_lootbox_or_gacha=True`, enforces non-empty
+       `probability_table` summing to `1.0` (`±0.005`) or `100.0` (`±0.5`) with positive tier odds and
+       a bounded hard pity ceiling `1 <= pity_cap <= 180` (`GACHA_PROBABILITY_DISCLOSURE_MISSING`).
+    6. Rewarded video ad cadence & no-fill fallback: when `rewarded_ads.enabled=True`, enforces
+       `cooldown_sec >= 90`, `first_ad_delay_sec >= 30`, `1 <= daily_cap <= 30`, and
+       `no_fill_graceful_fallback=True` (`REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION`).
+    """
+    violations: List[str] = []
+    stores: Dict[str, Dict[str, Any]] = MONETIZATION_IAP_LIMITS["stores"]
+    store_key = str(store or "wechat_minigame").strip().lower()
+    if store_key not in stores:
+        violations.append(
+            f"UNSUPPORTED_MONETIZATION_STORE: Store '{store_key}' not in {sorted(stores.keys())}; falling back to 'wechat_minigame'."
+        )
+        store_key = "wechat_minigame"
+
+    profile = stores[store_key]
+    domestic_minor_cap = bool(profile["domestic_minor_cap"])
+    requires_restore = bool(profile["requires_restore"])
+
+    skus = [s for s in (config.get("skus") or []) if isinstance(s, dict)]
+    has_paywall = bool(config.get("episode_unlock_paywall", False)) or len(skus) > 0
+
+    if domestic_minor_cap and has_paywall:
+        real_name_ok = bool(config.get("real_name_auth_required", False))
+        minor_cap_ok = bool(config.get("minor_spending_cap_enforced", False))
+        if not (real_name_ok and minor_cap_ok):
+            violations.append(
+                f"MINOR_ANTI_ADDICTION_UNENFORCED: Store '{store_key}' requires real_name_auth_required=True and minor_spending_cap_enforced=True for paid content."
+            )
+
+    seen_sku_ids: set[str] = set()
+    sku_issues: List[str] = []
+    has_permanent_entitlement = False
+    for idx, sku in enumerate(skus):
+        sid = str(sku.get("sku_id") or "").strip()
+        price = float(sku.get("price", 0.0) or 0.0)
+        kind = str(sku.get("kind") or "consumable").strip().lower()
+        if not _SKU_ID_PATTERN.match(sid) or sid in seen_sku_ids:
+            sku_issues.append(f"invalid_or_dup_id({sid or idx})")
+        else:
+            seen_sku_ids.add(sid)
+        if price <= 0.0:
+            sku_issues.append(f"non_positive_price({sid or idx})")
+        if kind not in {"consumable", "non_consumable", "season_pass", "subscription"}:
+            sku_issues.append(f"unknown_kind({kind})")
+        if kind in {"non_consumable", "season_pass"}:
+            has_permanent_entitlement = True
+        if bool(sku.get("prechecked_auto_renew", False)):
+            sku_issues.append(f"dark_pattern_prechecked_renew({sid or idx})")
+
+    restore_ok = bool(config.get("restore_purchases_supported", False))
+    if has_permanent_entitlement and requires_restore and not restore_ok:
+        sku_issues.append("missing_restore_purchases_for_permanent_sku")
+    if sku_issues:
+        violations.append(
+            f"IAP_SKU_PRICING_OR_RESTORE_TRAP: SKU or entitlement configuration failed check(s): {sku_issues[:4]}."
+        )
+
+    receipt_verified = bool(config.get("server_side_receipt_verify", False))
+    if has_paywall and not receipt_verified:
+        violations.append(
+            "CLIENT_ONLY_RECEIPT_TRUST_RISK: Paid SKUs or episode unlock paywalls require server_side_receipt_verify=True to prevent local save tampering."
+        )
+
+    has_gacha = bool(config.get("has_lootbox_or_gacha", False))
+    pity_cap = int(config.get("pity_cap") or 0)
+    prob_table = config.get("probability_table")
+    if has_gacha:
+        max_pity = int(MONETIZATION_IAP_LIMITS["max_gacha_pity_cap"])
+        valid_probs = False
+        if isinstance(prob_table, dict) and prob_table:
+            vals = [float(v) for v in prob_table.values() if isinstance(v, (int, float))]
+            total_prob = sum(vals)
+            if len(vals) == len(prob_table) and all(v > 0.0 for v in vals):
+                valid_probs = abs(total_prob - 1.0) <= 0.005 or abs(total_prob - 100.0) <= 0.5
+        if not valid_probs or not (1 <= pity_cap <= max_pity):
+            violations.append(
+                f"GACHA_PROBABILITY_DISCLOSURE_MISSING: Gacha/lootbox requires valid probability_table summing to 1.0/100% and pity_cap in [1, {max_pity}] (got pity_cap={pity_cap})."
+            )
+
+    ad_cfg = config.get("rewarded_ads")
+    ad_enabled = isinstance(ad_cfg, dict) and bool(ad_cfg.get("enabled", False))
+    ad_cooldown = 0
+    if ad_enabled and isinstance(ad_cfg, dict):
+        min_cd = int(MONETIZATION_IAP_LIMITS["min_ad_cooldown_sec"])
+        min_delay = int(MONETIZATION_IAP_LIMITS["min_first_ad_delay_sec"])
+        max_daily = int(MONETIZATION_IAP_LIMITS["max_daily_rewarded_ads"])
+        ad_cooldown = int(ad_cfg.get("cooldown_sec") or 0)
+        first_delay = int(ad_cfg.get("first_ad_delay_sec") or 0)
+        daily_cap = int(ad_cfg.get("daily_cap") or 0)
+        fallback_ok = bool(ad_cfg.get("no_fill_graceful_fallback", False))
+        if (
+            ad_cooldown < min_cd
+            or first_delay < min_delay
+            or not (1 <= daily_cap <= max_daily)
+            or not fallback_ok
+        ):
+            violations.append(
+                f"REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION: Rewarded ads require cooldown>={min_cd}s, first_ad_delay>={min_delay}s, daily_cap in [1,{max_daily}], and no_fill_graceful_fallback=True."
+            )
+
+    score = max(0, 100 - len(violations) * 20)
+    return MonetizationIapReport(
+        passed=len(violations) == 0,
+        score=score,
+        store=store_key,
+        violations=violations,
+        metrics={
+            "sku_count": len(skus),
+            "has_paywall": has_paywall,
+            "has_permanent_entitlement": has_permanent_entitlement,
+            "has_lootbox_or_gacha": has_gacha,
+            "rewarded_ads_enabled": ad_enabled,
+            "ad_cooldown_sec": ad_cooldown if ad_enabled else None,
+        },
+    )
+
+
 
 

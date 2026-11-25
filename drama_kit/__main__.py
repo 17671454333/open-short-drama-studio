@@ -23,6 +23,7 @@ from .gates import (
     inspect_localization_dubbing_pack,
     inspect_asset_license_provenance,
     inspect_matrix_publish_manifest,
+    inspect_monetization_iap_compliance,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -413,6 +414,29 @@ def main() -> None:
             platform="bilibili",
         )
 
+        monetization_iap_report = inspect_monetization_iap_compliance(
+            {
+                "episode_unlock_paywall": True,
+                "real_name_auth_required": True,
+                "minor_spending_cap_enforced": True,
+                "restore_purchases_supported": True,
+                "server_side_receipt_verify": True,
+                "skus": [
+                    {"sku_id": "season1.full_unlock", "price": 18.0, "kind": "season_pass"},
+                    {"sku_id": "spirit_jade.pack60", "price": 6.0, "kind": "consumable"},
+                ],
+                "has_lootbox_or_gacha": False,
+                "rewarded_ads": {
+                    "enabled": True,
+                    "cooldown_sec": 120,
+                    "first_ad_delay_sec": 45,
+                    "daily_cap": 10,
+                    "no_fill_graceful_fallback": True,
+                },
+            },
+            store="wechat_minigame",
+        )
+
         print(
             json.dumps(
                 {
@@ -542,6 +566,13 @@ def main() -> None:
                         "platform": matrix_publish_report.platform,
                         "violations": matrix_publish_report.violations,
                         "metrics": matrix_publish_report.metrics,
+                    },
+                    "monetization_iap_gate": {
+                        "passed": monetization_iap_report.passed,
+                        "score": monetization_iap_report.score,
+                        "store": monetization_iap_report.store,
+                        "violations": monetization_iap_report.violations,
+                        "metrics": monetization_iap_report.metrics,
                     },
                 },
                 ensure_ascii=False,
