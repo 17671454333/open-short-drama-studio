@@ -24,6 +24,7 @@ from .gates import (
     inspect_asset_license_provenance,
     inspect_matrix_publish_manifest,
     inspect_monetization_iap_compliance,
+    inspect_cloud_save_cdn_manifest,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -437,6 +438,39 @@ def main() -> None:
             store="wechat_minigame",
         )
 
+        cloud_save_cdn_report = inspect_cloud_save_cdn_manifest(
+            {
+                "cdn_assets": [
+                    {
+                        "id": "EP01_SEG01",
+                        "type": "video",
+                        "url": "https://cdn-main.xingtu-drama.com/episodes/ep01_seg01.9f8a7b6c.mp4",
+                        "sri_sha256": "sha256-9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c",
+                        "size_mb": 11.4,
+                        "poster_frame_ready": True,
+                        "byte_range_supported": True,
+                    },
+                    {
+                        "id": "BUNDLE_CORE",
+                        "type": "script",
+                        "url": "https://cdn-main.xingtu-drama.com/js/runtime.4a3b2c1d.js",
+                        "sri_sha256": "sha256-4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d",
+                        "size_mb": 0.85,
+                    },
+                ],
+                "fallback_origins": ["https://cdn-backup.xingtu-drama.com"],
+                "save_schema_version": 3,
+                "migration_steps": [
+                    {"from_version": 1, "to_version": 2},
+                    {"from_version": 2, "to_version": 3},
+                ],
+                "max_save_payload_kb": 64.0,
+                "integrity_hmac_enabled": True,
+                "save_sample_fields": ["chapter_id", "unlocked_nodes", "affection_scores", "updated_at"],
+            },
+            target="wechat_minigame",
+        )
+
         print(
             json.dumps(
                 {
@@ -573,6 +607,13 @@ def main() -> None:
                         "store": monetization_iap_report.store,
                         "violations": monetization_iap_report.violations,
                         "metrics": monetization_iap_report.metrics,
+                    },
+                    "cloud_save_cdn_gate": {
+                        "passed": cloud_save_cdn_report.passed,
+                        "score": cloud_save_cdn_report.score,
+                        "target": cloud_save_cdn_report.target,
+                        "violations": cloud_save_cdn_report.violations,
+                        "metrics": cloud_save_cdn_report.metrics,
                     },
                 },
                 ensure_ascii=False,

@@ -61,6 +61,8 @@
     - 面向 **抖音、视频号、小红书、B站（含 Toy 互动游戏挂载）、YouTube 与 TikTok** 分发前元数据确定性审计：按渠道校验标题字数红线（视频号 `<= 16` 字、小红书 `<= 20` 字、抖音 `<= 30` 字）、拦截公开文案与置顶评论误带本机 `C:\`/`/Users/` 路径、`localhost` 调试地址、邮箱或手机号（`PUBLIC_METADATA_PII_OR_PATH_LEAK`）、拦截跨平台废片水印与国内导流限流黑词（`加微`/`VX:`/`公众号搜`/`私信领`、`TRAFFIC_DIVERSION_OR_WATERMARK_TRAP`）、校验话题标签上限与重复堆砌（`HASHTAG_QUOTA_OR_DUPLICATE_VIOLATION`）、核验视频号 `[4, 12]` 字左下角挂车短标题与 B站 `toy_slug`/`BV` 号互动游戏绑定格式（`COMMERCE_OR_TOY_MOUNT_INVALID`），并对账 `[15, 20160]` 分钟定时发布窗口与短剧合集 `第N集`/`Ep N` 连载序号（`EPISODE_COLLECTION_INDEX_MISMATCH`）。
 22. **💳 内购计费、激励广告频控与防沉迷实名合规门禁 (`inspect_monetization_iap_compliance`)**：
     - 面向 **微信小游戏、抖音小游戏、TapTap、B站 Toy、Google Play、App Store 与 Steam** 商业化提审确定性审计：强制国内渠道付费解锁接入实名认证与未成年人充值限额硬锁（`MINOR_ANTI_ADDICTION_UNENFORCED`）、校验 SKU 价格合法性与买断制/季票恢复购买入口并拦截默认勾选自动续费暗黑模式（`IAP_SKU_PRICING_OR_RESTORE_TRAP`）、拦截纯客户端本地验单导致 0 元改档破解（`CLIENT_ONLY_RECEIPT_TRUST_RISK`）、核验抽卡/盲盒 `100%` 概率公示表与 `<= 180` 抽硬保底上限（`GACHA_PROBABILITY_DISCLOSURE_MISSING`），并约束激励视频广告 `>= 90s` 冷却间隔、开局 `>= 30s` 免打扰保护期及无填充优雅降级兜底（`REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION`）。
+23. **☁️ 云端存档跨版本迁移、热更 CDN 完整性与 HTTP 206 流式续播门禁 (`inspect_cloud_save_cdn_manifest`)**：
+    - 面向 **微信小游戏、抖音小游戏、B站 Toy、iOS Safari H5、Android APK 与 Steam** 热更与云同步上线前确定性审计：强制远程热更资源启用 HTTPS、不可变内容哈希文件名与 SHA-256 SRI 摘要防缓存错配白屏（`CDN_HTTPS_HASH_OR_SRI_MISSING`）、校验分集视频流切片体积上限（`15MB~25MB`）、首帧海报防切镜黑屏（`poster_frame_ready`）及 iOS WebKit / 微信 WebView 必备的 HTTP `206` `byte_range_supported` 拖动续播支持（`STREAMING_CHUNK_OR_POSTER_VIOLATION`）、强制配置独立 HTTPS 备用 CDN 源站（`CDN_MULTI_ORIGIN_FALLBACK_MISSING`）、校验 `v1 -> vN` 连续无断档存档迁移链防热更清档（`SAVE_SCHEMA_MIGRATION_BROKEN`），并约束云存档体积配额、HMAC 防改档签名与敏感手机号/Token 字段隔离（`CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK`）。
 
 ---
 

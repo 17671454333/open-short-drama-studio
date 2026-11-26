@@ -22,6 +22,7 @@ from drama_kit import (
     inspect_asset_license_provenance,
     inspect_matrix_publish_manifest,
     inspect_monetization_iap_compliance,
+    inspect_cloud_save_cdn_manifest,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1380,6 +1381,89 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("CLIENT_ONLY_RECEIPT_TRUST_RISK" in v for v in rep_bad.violations))
         self.assertTrue(any("GACHA_PROBABILITY_DISCLOSURE_MISSING" in v for v in rep_bad.violations))
         self.assertTrue(any("REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION" in v for v in rep_bad.violations))
+
+    def test_inspect_cloud_save_cdn_manifest_passes_clean_wechat_and_steam_ota(self):
+        rep_wx = inspect_cloud_save_cdn_manifest(
+            {
+                "cdn_assets": [
+                    {
+                        "id": "EP01_SEG01",
+                        "type": "video",
+                        "url": "https://cdn-a.studio.example/drama/ep01_seg01.a1b2c3d4.mp4",
+                        "sri_sha256": "sha256-a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                        "size_mb": 12.5,
+                        "poster_frame_ready": True,
+                        "byte_range_supported": True,
+                    },
+                    {
+                        "id": "CORE_JS",
+                        "type": "script",
+                        "url": "https://cdn-a.studio.example/js/app.f0e1d2c3.js",
+                        "sri_sha256": "sha256:f0e1d2c3b4a5968778695a4b3c2d1e0f",
+                        "size_mb": 0.9,
+                    },
+                ],
+                "fallback_origins": ["https://cdn-b.studio.example"],
+                "save_schema_version": 3,
+                "migration_steps": [
+                    {"from_version": 1, "to_version": 2},
+                    {"from_version": 2, "to_version": 3},
+                ],
+                "max_save_payload_kb": 48.0,
+                "integrity_hmac_enabled": True,
+                "save_sample_fields": ["slot_index", "current_node", "unlocked_endings"],
+            },
+            target="wechat_minigame",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+        self.assertEqual(rep_wx.violations, [])
+
+        rep_steam = inspect_cloud_save_cdn_manifest(
+            {
+                "cdn_assets": [],
+                "save_schema_version": 1,
+                "max_save_payload_kb": 512.0,
+                "integrity_hmac_enabled": True,
+                "save_sample_fields": ["chapter_id", "inventory_flags"],
+            },
+            target="steam",
+        )
+        self.assertTrue(rep_steam.passed)
+        self.assertEqual(rep_steam.score, 100)
+
+    def test_inspect_cloud_save_cdn_manifest_catches_http_sri_range_fallback_migration_and_save_traps(self):
+        rep_bad = inspect_cloud_save_cdn_manifest(
+            {
+                "cdn_assets": [
+                    {
+                        "id": "EP06_RAW",
+                        "type": "video",
+                        "url": "http://cdn-a.studio.example/drama/episode_06.mp4",
+                        "sri_sha256": "",
+                        "size_mb": 42.0,
+                        "poster_frame_ready": False,
+                        "byte_range_supported": False,
+                    }
+                ],
+                "fallback_origins": [],
+                "save_schema_version": 4,
+                "migration_steps": [
+                    {"from_version": 1, "to_version": 2},
+                ],
+                "max_save_payload_kb": 2048.0,
+                "integrity_hmac_enabled": False,
+                "save_sample_fields": ["chapter_id", "user_phone_number", "session_token"],
+            },
+            target="ios_safari_h5",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("CDN_HTTPS_HASH_OR_SRI_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("STREAMING_CHUNK_OR_POSTER_VIOLATION" in v for v in rep_bad.violations))
+        self.assertTrue(any("CDN_MULTI_ORIGIN_FALLBACK_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("SAVE_SCHEMA_MIGRATION_BROKEN" in v for v in rep_bad.violations))
+        self.assertTrue(any("CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

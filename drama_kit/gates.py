@@ -2969,5 +2969,186 @@ def inspect_monetization_iap_compliance(
     )
 
 
+@dataclass
+class CloudSaveCdnReport:
+    passed: bool
+    score: int
+    target: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+CLOUD_SAVE_CDN_LIMITS: Dict[str, Any] = {
+    "targets": {
+        "wechat_minigame": {"max_chunk_mb": 20.0, "max_save_kb": 1024.0, "requires_byte_range": True},
+        "douyin_minigame": {"max_chunk_mb": 20.0, "max_save_kb": 1024.0, "requires_byte_range": True},
+        "bilibili_toy": {"max_chunk_mb": 25.0, "max_save_kb": 512.0, "requires_byte_range": True},
+        "ios_safari_h5": {"max_chunk_mb": 15.0, "max_save_kb": 512.0, "requires_byte_range": True},
+        "android_apk": {"max_chunk_mb": 50.0, "max_save_kb": 2048.0, "requires_byte_range": True},
+        "steam": {"max_chunk_mb": 100.0, "max_save_kb": 10240.0, "requires_byte_range": False},
+    },
+    "forbidden_save_field_tokens": (
+        "phone",
+        "mobile",
+        "id_card",
+        "idcard",
+        "password",
+        "passwd",
+        "secret",
+        "session_token",
+        "access_token",
+    ),
+}
+
+_CONTENT_HASHED_ASSET_URL_PATTERN = re.compile(
+    r"^https://[a-z0-9.-]+(?:/[A-Za-z0-9._~%-]+)+[._-][0-9a-fA-F]{6,64}\.[a-zA-Z0-9]{2,6}$"
+)
+_SRI_SHA256_PATTERN = re.compile(r"^sha256[-:][A-Za-z0-9+/=_-]{16,}$")
+_HTTPS_ORIGIN_PATTERN = re.compile(r"^https://([a-z0-9.-]+)(?::\d+)?(?:/.*)?$", re.IGNORECASE)
+
+
+def inspect_cloud_save_cdn_manifest(
+    manifest: Dict[str, Any],
+    target: str = "wechat_minigame",
+) -> CloudSaveCdnReport:
+    """
+    Deterministic pre-release cloud-save schema migration, hot-update CDN subresource integrity (SRI),
+    and HTTP 206 byte-range video streaming gate across WeChat/Douyin Mini-Games, Bilibili Toy,
+    iOS Safari H5, Android APK & Steam:
+    1. Target profile validation (`UNSUPPORTED_CLOUD_SAVE_TARGET`).
+    2. HTTPS immutable cache-busting hash & SHA-256 SRI digest check on remote `cdn_assets`
+       (`CDN_HTTPS_HASH_OR_SRI_MISSING`).
+    3. Episode video chunk MB cap, `poster_frame_ready=True` anti-black-flash check, and iOS/WebView
+       HTTP 206 `byte_range_supported=True` check (`STREAMING_CHUNK_OR_POSTER_VIOLATION`).
+    4. Multi-origin HTTPS CDN failover validation (`CDN_MULTI_ORIGIN_FALLBACK_MISSING`).
+    5. Continuous forward `1 -> N` save schema migration chain audit (`SAVE_SCHEMA_MIGRATION_BROKEN`).
+    6. Cloud save payload KB quota, HMAC anti-tamper signature, and PII/token field exclusion
+       (`CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK`).
+    """
+    violations: List[str] = []
+    targets: Dict[str, Dict[str, Any]] = CLOUD_SAVE_CDN_LIMITS["targets"]
+    target_key = str(target or "wechat_minigame").strip().lower()
+    if target_key not in targets:
+        violations.append(
+            f"UNSUPPORTED_CLOUD_SAVE_TARGET: Target '{target_key}' not in {sorted(targets.keys())}; falling back to 'wechat_minigame'."
+        )
+        target_key = "wechat_minigame"
+
+    profile = targets[target_key]
+    max_chunk_mb = float(profile["max_chunk_mb"])
+    max_save_kb = float(profile["max_save_kb"])
+    requires_range = bool(profile["requires_byte_range"])
+
+    assets = [a for a in (manifest.get("cdn_assets") or []) if isinstance(a, dict)]
+    hash_sri_issues: List[str] = []
+    stream_issues: List[str] = []
+    primary_hosts: set[str] = set()
+    video_chunk_count = 0
+    peak_chunk_mb = 0.0
+
+    for idx, asset in enumerate(assets):
+        aid = str(asset.get("id") or f"asset_{idx}")
+        url = str(asset.get("url") or "").strip()
+        sri = str(asset.get("sri_sha256") or "").strip()
+        atype = str(asset.get("type") or "").strip().lower()
+        size_mb = float(asset.get("size_mb") or 0.0)
+        peak_chunk_mb = max(peak_chunk_mb, size_mb)
+
+        m_host = _HTTPS_ORIGIN_PATTERN.match(url)
+        if m_host:
+            primary_hosts.add(m_host.group(1).lower())
+        if not _CONTENT_HASHED_ASSET_URL_PATTERN.match(url) or not _SRI_SHA256_PATTERN.match(sri):
+            hash_sri_issues.append(aid)
+
+        is_video = atype == "video" or url.lower().endswith((".mp4", ".m4s", ".ts", ".webm"))
+        if is_video:
+            video_chunk_count += 1
+            if size_mb <= 0.0 or size_mb > max_chunk_mb:
+                stream_issues.append(f"{aid}:size={size_mb}MB>{max_chunk_mb}MB")
+            if not bool(asset.get("poster_frame_ready", False)):
+                stream_issues.append(f"{aid}:missing_poster_frame")
+            if requires_range and not bool(asset.get("byte_range_supported", False)):
+                stream_issues.append(f"{aid}:byte_range_disabled")
+
+    if hash_sri_issues:
+        violations.append(
+            f"CDN_HTTPS_HASH_OR_SRI_MISSING: Remote asset(s) missing HTTPS, content-hash filename, or sha256 SRI digest: {hash_sri_issues[:4]}."
+        )
+    if stream_issues:
+        violations.append(
+            f"STREAMING_CHUNK_OR_POSTER_VIOLATION: Video streaming asset(s) failed chunk/poster/HTTP-206 checks: {stream_issues[:4]}."
+        )
+
+    raw_fallbacks = manifest.get("fallback_origins") or []
+    valid_fallback_hosts: set[str] = set()
+    if isinstance(raw_fallbacks, list):
+        for fb in raw_fallbacks:
+            m_fb = _HTTPS_ORIGIN_PATTERN.match(str(fb or "").strip())
+            if m_fb:
+                host_fb = m_fb.group(1).lower()
+                if host_fb not in primary_hosts:
+                    valid_fallback_hosts.add(host_fb)
+    if assets and not valid_fallback_hosts:
+        violations.append(
+            "CDN_MULTI_ORIGIN_FALLBACK_MISSING: At least one distinct HTTPS fallback_origins domain is required when cdn_assets are configured."
+        )
+
+    schema_ver = int(manifest.get("save_schema_version") or 1)
+    steps = [s for s in (manifest.get("migration_steps") or []) if isinstance(s, dict)]
+    step_map: Dict[int, int] = {}
+    for step in steps:
+        frm = int(step.get("from_version") or 0)
+        to = int(step.get("to_version") or 0)
+        if to == frm + 1 and frm >= 1:
+            step_map[frm] = to
+
+    if schema_ver < 1:
+        violations.append(f"SAVE_SCHEMA_MIGRATION_BROKEN: save_schema_version={schema_ver} must be >= 1.")
+    elif schema_ver > 1:
+        cur = 1
+        while cur < schema_ver and cur in step_map:
+            cur = step_map[cur]
+        if cur != schema_ver:
+            violations.append(
+                f"SAVE_SCHEMA_MIGRATION_BROKEN: Incomplete forward migration chain from v1 to v{schema_ver} (stalled at v{cur})."
+            )
+
+    save_kb = float(manifest.get("max_save_payload_kb") or 0.0)
+    hmac_ok = bool(manifest.get("integrity_hmac_enabled", False))
+    save_fields = [str(k).strip().lower() for k in (manifest.get("save_sample_fields") or [])]
+    forbidden_tokens = CLOUD_SAVE_CDN_LIMITS["forbidden_save_field_tokens"]
+    leaked_fields = [f for f in save_fields if any(tok in f for tok in forbidden_tokens)]
+    save_issues: List[str] = []
+    if save_kb <= 0.0 or save_kb > max_save_kb:
+        save_issues.append(f"payload_kb={save_kb}>{max_save_kb}")
+    if not hmac_ok:
+        save_issues.append("integrity_hmac_disabled")
+    if leaked_fields:
+        save_issues.append(f"sensitive_fields={leaked_fields[:3]}")
+    if save_issues:
+        violations.append(
+            f"CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK: Cloud save audit failed check(s): {save_issues}."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return CloudSaveCdnReport(
+        passed=len(violations) == 0,
+        score=score,
+        target=target_key,
+        violations=violations,
+        metrics={
+            "cdn_asset_count": len(assets),
+            "video_chunk_count": video_chunk_count,
+            "peak_chunk_mb": round(peak_chunk_mb, 3),
+            "max_chunk_mb_limit": max_chunk_mb,
+            "fallback_origin_count": len(valid_fallback_hosts),
+            "save_schema_version": schema_ver,
+            "max_save_payload_kb": save_kb,
+            "max_save_kb_limit": max_save_kb,
+            "requires_byte_range": requires_range,
+        },
+    )
+
+
 
 
