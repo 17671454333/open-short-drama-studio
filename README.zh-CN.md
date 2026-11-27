@@ -63,6 +63,8 @@
     - 面向 **微信小游戏、抖音小游戏、TapTap、B站 Toy、Google Play、App Store 与 Steam** 商业化提审确定性审计：强制国内渠道付费解锁接入实名认证与未成年人充值限额硬锁（`MINOR_ANTI_ADDICTION_UNENFORCED`）、校验 SKU 价格合法性与买断制/季票恢复购买入口并拦截默认勾选自动续费暗黑模式（`IAP_SKU_PRICING_OR_RESTORE_TRAP`）、拦截纯客户端本地验单导致 0 元改档破解（`CLIENT_ONLY_RECEIPT_TRUST_RISK`）、核验抽卡/盲盒 `100%` 概率公示表与 `<= 180` 抽硬保底上限（`GACHA_PROBABILITY_DISCLOSURE_MISSING`），并约束激励视频广告 `>= 90s` 冷却间隔、开局 `>= 30s` 免打扰保护期及无填充优雅降级兜底（`REWARDED_AD_CADENCE_OR_FALLBACK_VIOLATION`）。
 23. **☁️ 云端存档跨版本迁移、热更 CDN 完整性与 HTTP 206 流式续播门禁 (`inspect_cloud_save_cdn_manifest`)**：
     - 面向 **微信小游戏、抖音小游戏、B站 Toy、iOS Safari H5、Android APK 与 Steam** 热更与云同步上线前确定性审计：强制远程热更资源启用 HTTPS、不可变内容哈希文件名与 SHA-256 SRI 摘要防缓存错配白屏（`CDN_HTTPS_HASH_OR_SRI_MISSING`）、校验分集视频流切片体积上限（`15MB~25MB`）、首帧海报防切镜黑屏（`poster_frame_ready`）及 iOS WebKit / 微信 WebView 必备的 HTTP `206` `byte_range_supported` 拖动续播支持（`STREAMING_CHUNK_OR_POSTER_VIOLATION`）、强制配置独立 HTTPS 备用 CDN 源站（`CDN_MULTI_ORIGIN_FALLBACK_MISSING`）、校验 `v1 -> vN` 连续无断档存档迁移链防热更清档（`SAVE_SCHEMA_MIGRATION_BROKEN`），并约束云存档体积配额、HMAC 防改档签名与敏感手机号/Token 字段隔离（`CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK`）。
+24. **🎛️ 跨端压缩纹理 (ASTC/ETC2/BC7)、Shader PSO 预热与 WebGL 上下文恢复打包门禁 (`inspect_gpu_shader_texture_pack`)**：
+    - 面向 **微信小游戏、B站 Toy、iOS Safari H5、Android APK 与 Steam PC** 打包封包前显存与渲染管线确定性审计：强制校验平台硬件压缩纹理配对（移动端 `astc`+`etc2`、PC 端 `bc7`）与峰值显存上限防 iOS WebView 爆显存闪退（`TEXTURE_COMPRESSION_OR_VRAM_VIOLATION`）、拦截 Shader 变体爆炸与缺失首帧 PSO 预编译缓存导致首刀/切镜卡死（`SHADER_VARIANT_OR_PSO_PREWARM_TRAP`）、强制挂载 `webglcontextlost` 恢复与切后台 `visibilitychange` 自动静音暂停（`CONTEXT_LOSS_OR_VISIBILITY_LIFECYCLE_MISSING`）、约束移动端发热帧率上限与互动影游硬件视频解码（`THERMAL_FPS_OR_DECODER_FALLBACK_RISK`），并拦截 `.psd`/`.blend`/`.fbx` 原始工程文件及未剥离 Shader 调试符号混入发行包（`RAW_DCC_SOURCE_OR_DEBUG_SHADER_LEAK`）。
 
 ---
 

@@ -3150,5 +3150,177 @@ def inspect_cloud_save_cdn_manifest(
     )
 
 
+@dataclass
+class GpuShaderTextureReport:
+    passed: bool
+    score: int
+    target: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+GPU_SHADER_TEXTURE_LIMITS: Dict[str, Any] = {
+    "targets": {
+        "wechat_minigame": {
+            "required_formats": ("astc", "etc2"),
+            "max_vram_mb": 256.0,
+            "max_shader_variants": 128,
+            "max_target_fps": 60,
+            "requires_context_restore": True,
+        },
+        "bilibili_toy": {
+            "required_formats": ("astc", "etc2"),
+            "max_vram_mb": 384.0,
+            "max_shader_variants": 192,
+            "max_target_fps": 60,
+            "requires_context_restore": True,
+        },
+        "ios_safari_h5": {
+            "required_formats": ("astc",),
+            "max_vram_mb": 256.0,
+            "max_shader_variants": 128,
+            "max_target_fps": 60,
+            "requires_context_restore": True,
+        },
+        "android_apk": {
+            "required_formats": ("astc", "etc2"),
+            "max_vram_mb": 512.0,
+            "max_shader_variants": 256,
+            "max_target_fps": 90,
+            "requires_context_restore": False,
+        },
+        "steam_pc": {
+            "required_formats": ("bc7",),
+            "max_vram_mb": 2048.0,
+            "max_shader_variants": 1024,
+            "max_target_fps": 240,
+            "requires_context_restore": False,
+        },
+    },
+    "raw_dcc_extensions": (
+        ".psd",
+        ".blend",
+        ".blend1",
+        ".fbx",
+        ".mb",
+        ".ma",
+        ".max",
+        ".xcf",
+        ".exr",
+        ".tga",
+    ),
+}
+
+
+def inspect_gpu_shader_texture_pack(
+    manifest: Dict[str, Any],
+    target: str = "wechat_minigame",
+) -> GpuShaderTextureReport:
+    """
+    Deterministic pre-packaging GPU compressed texture (ASTC/ETC2/BC7), shader PSO pre-warming,
+    WebGL context-loss recovery & thermal frame-cap gate across WeChat Mini-Games, Bilibili Toy,
+    iOS Safari H5, Android APK & Steam PC:
+    1. Target profile validation (`UNSUPPORTED_GPU_PACK_TARGET`).
+    2. Hardware compressed texture format coverage & peak GPU VRAM ceiling audit
+       (`TEXTURE_COMPRESSION_OR_VRAM_VIOLATION`).
+    3. Shader variant explosion ceiling & first-frame PSO pre-warm cache audit
+       (`SHADER_VARIANT_OR_PSO_PREWARM_TRAP`).
+    4. WebGL context-loss restoration & background tab visibility pause lifecycle audit
+       (`CONTEXT_LOSS_OR_VISIBILITY_LIFECYCLE_MISSING`).
+    5. Mobile thermal FPS cap & hardware video texture decode audit
+       (`THERMAL_FPS_OR_DECODER_FALLBACK_RISK`).
+    6. Unstripped debug shader symbols & raw DCC authoring file leak audit
+       (`RAW_DCC_SOURCE_OR_DEBUG_SHADER_LEAK`).
+    """
+    violations: List[str] = []
+    targets: Dict[str, Dict[str, Any]] = GPU_SHADER_TEXTURE_LIMITS["targets"]
+    target_key = str(target or "wechat_minigame").strip().lower()
+    if target_key not in targets:
+        violations.append(
+            f"UNSUPPORTED_GPU_PACK_TARGET: Target '{target_key}' not in {sorted(targets.keys())}; falling back to 'wechat_minigame'."
+        )
+        target_key = "wechat_minigame"
+
+    profile = targets[target_key]
+    req_formats = tuple(profile["required_formats"])
+    max_vram_mb = float(profile["max_vram_mb"])
+    max_variants = int(profile["max_shader_variants"])
+    max_fps = int(profile["max_target_fps"])
+    req_ctx_restore = bool(profile["requires_context_restore"])
+
+    shipped_formats = {
+        str(fmt or "").strip().lower()
+        for fmt in (manifest.get("texture_formats") or [])
+        if str(fmt or "").strip()
+    }
+    missing_formats = [fmt for fmt in req_formats if fmt not in shipped_formats]
+    vram_mb = float(manifest.get("estimated_vram_mb") or 0.0)
+    npot_etc2_mip = bool(manifest.get("npot_etc2_mipmaps", False)) and ("etc2" in shipped_formats or "etc2" in req_formats)
+    tex_issues: List[str] = []
+    if missing_formats:
+        tex_issues.append(f"missing_formats={missing_formats}")
+    if vram_mb <= 0.0 or vram_mb > max_vram_mb:
+        tex_issues.append(f"vram_mb={vram_mb}>{max_vram_mb}")
+    if npot_etc2_mip:
+        tex_issues.append("npot_etc2_mipmaps=True")
+    if tex_issues:
+        violations.append(
+            f"TEXTURE_COMPRESSION_OR_VRAM_VIOLATION: GPU texture pack failed check(s): {tex_issues}."
+        )
+
+    variant_count = int(manifest.get("shader_variant_count") or 0)
+    pso_prewarm = bool(manifest.get("pso_prewarm_bundled", False))
+    if variant_count < 0 or variant_count > max_variants or (variant_count > 0 and not pso_prewarm):
+        violations.append(
+            f"SHADER_VARIANT_OR_PSO_PREWARM_TRAP: shader_variant_count={variant_count} (limit {max_variants}) or pso_prewarm_bundled={pso_prewarm} risks first-hit frame freeze."
+        )
+
+    ctx_restore_ok = bool(manifest.get("webgl_context_restore_handler", False))
+    pause_hidden_ok = bool(manifest.get("pause_on_visibility_hidden", False))
+    if (req_ctx_restore and not ctx_restore_ok) or not pause_hidden_ok:
+        violations.append(
+            f"CONTEXT_LOSS_OR_VISIBILITY_LIFECYCLE_MISSING: webgl_context_restore_handler={ctx_restore_ok} (required={req_ctx_restore}), pause_on_visibility_hidden={pause_hidden_ok}."
+        )
+
+    target_fps = int(manifest.get("target_fps") or 0)
+    has_fmv = bool(manifest.get("has_fmv_video_textures", False))
+    hw_decode = bool(manifest.get("hw_video_decode_preferred", False))
+    if target_fps <= 0 or target_fps > max_fps or (has_fmv and not hw_decode):
+        violations.append(
+            f"THERMAL_FPS_OR_DECODER_FALLBACK_RISK: target_fps={target_fps} (limit {max_fps}), has_fmv={has_fmv}, hw_video_decode_preferred={hw_decode}."
+        )
+
+    debug_shaders = bool(manifest.get("shader_debug_symbols", False))
+    raw_exts = GPU_SHADER_TEXTURE_LIMITS["raw_dcc_extensions"]
+    leaked_dcc: List[str] = []
+    for fpath in (manifest.get("bundled_files") or []):
+        f_str = str(fpath or "").strip()
+        if f_str.lower().endswith(raw_exts):
+            leaked_dcc.append(f_str)
+    if debug_shaders or leaked_dcc:
+        violations.append(
+            f"RAW_DCC_SOURCE_OR_DEBUG_SHADER_LEAK: shader_debug_symbols={debug_shaders}, raw_dcc_files={leaked_dcc[:4]}."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return GpuShaderTextureReport(
+        passed=len(violations) == 0,
+        score=score,
+        target=target_key,
+        violations=violations,
+        metrics={
+            "shipped_format_count": len(shipped_formats),
+            "missing_format_count": len(missing_formats),
+            "estimated_vram_mb": round(vram_mb, 2),
+            "max_vram_mb_limit": max_vram_mb,
+            "shader_variant_count": variant_count,
+            "max_shader_variants_limit": max_variants,
+            "target_fps": target_fps,
+            "requires_context_restore": req_ctx_restore,
+        },
+    )
+
+
+
 
 

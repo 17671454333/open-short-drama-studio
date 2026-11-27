@@ -23,6 +23,7 @@ from drama_kit import (
     inspect_matrix_publish_manifest,
     inspect_monetization_iap_compliance,
     inspect_cloud_save_cdn_manifest,
+    inspect_gpu_shader_texture_pack,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1464,6 +1465,72 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("CDN_MULTI_ORIGIN_FALLBACK_MISSING" in v for v in rep_bad.violations))
         self.assertTrue(any("SAVE_SCHEMA_MIGRATION_BROKEN" in v for v in rep_bad.violations))
         self.assertTrue(any("CLOUD_SAVE_QUOTA_INTEGRITY_OR_PII_RISK" in v for v in rep_bad.violations))
+
+    def test_inspect_gpu_shader_texture_pack_passes_clean_wechat_and_steam_pc(self):
+        rep_wx = inspect_gpu_shader_texture_pack(
+            {
+                "texture_formats": ["astc", "etc2"],
+                "estimated_vram_mb": 160.0,
+                "npot_etc2_mipmaps": False,
+                "shader_variant_count": 72,
+                "pso_prewarm_bundled": True,
+                "webgl_context_restore_handler": True,
+                "pause_on_visibility_hidden": True,
+                "target_fps": 60,
+                "has_fmv_video_textures": True,
+                "hw_video_decode_preferred": True,
+                "shader_debug_symbols": False,
+                "bundled_files": ["index.html", "assets/atlas.ktx2", "shaders/pso.bin"],
+            },
+            target="wechat_minigame",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+        self.assertEqual(rep_wx.violations, [])
+
+        rep_pc = inspect_gpu_shader_texture_pack(
+            {
+                "texture_formats": ["bc7"],
+                "estimated_vram_mb": 1024.0,
+                "shader_variant_count": 320,
+                "pso_prewarm_bundled": True,
+                "webgl_context_restore_handler": False,
+                "pause_on_visibility_hidden": True,
+                "target_fps": 144,
+                "has_fmv_video_textures": False,
+                "shader_debug_symbols": False,
+                "bundled_files": ["game.exe", "data.pck"],
+            },
+            target="steam_pc",
+        )
+        self.assertTrue(rep_pc.passed)
+        self.assertEqual(rep_pc.score, 100)
+
+    def test_inspect_gpu_shader_texture_pack_catches_vram_pso_context_fps_and_dcc_traps(self):
+        rep_bad = inspect_gpu_shader_texture_pack(
+            {
+                "texture_formats": ["png_rgba8"],
+                "estimated_vram_mb": 512.0,
+                "npot_etc2_mipmaps": True,
+                "shader_variant_count": 400,
+                "pso_prewarm_bundled": False,
+                "webgl_context_restore_handler": False,
+                "pause_on_visibility_hidden": False,
+                "target_fps": 120,
+                "has_fmv_video_textures": True,
+                "hw_video_decode_preferred": False,
+                "shader_debug_symbols": True,
+                "bundled_files": ["index.html", "art_raw/hero_master.psd", "models/boss_rig.blend"],
+            },
+            target="bilibili_toy",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("TEXTURE_COMPRESSION_OR_VRAM_VIOLATION" in v for v in rep_bad.violations))
+        self.assertTrue(any("SHADER_VARIANT_OR_PSO_PREWARM_TRAP" in v for v in rep_bad.violations))
+        self.assertTrue(any("CONTEXT_LOSS_OR_VISIBILITY_LIFECYCLE_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("THERMAL_FPS_OR_DECODER_FALLBACK_RISK" in v for v in rep_bad.violations))
+        self.assertTrue(any("RAW_DCC_SOURCE_OR_DEBUG_SHADER_LEAK" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":

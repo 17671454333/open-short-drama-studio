@@ -25,6 +25,7 @@ from .gates import (
     inspect_matrix_publish_manifest,
     inspect_monetization_iap_compliance,
     inspect_cloud_save_cdn_manifest,
+    inspect_gpu_shader_texture_pack,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -470,6 +471,23 @@ def main() -> None:
             },
             target="wechat_minigame",
         )
+        gpu_shader_texture_report = inspect_gpu_shader_texture_pack(
+            {
+                "texture_formats": ["astc", "etc2"],
+                "estimated_vram_mb": 148.0,
+                "npot_etc2_mipmaps": False,
+                "shader_variant_count": 64,
+                "pso_prewarm_bundled": True,
+                "webgl_context_restore_handler": True,
+                "pause_on_visibility_hidden": True,
+                "target_fps": 60,
+                "has_fmv_video_textures": True,
+                "hw_video_decode_preferred": True,
+                "shader_debug_symbols": False,
+                "bundled_files": ["index.html", "assets/hero.ktx2", "shaders/pso_cache.bin"],
+            },
+            target="wechat_minigame",
+        )
 
         print(
             json.dumps(
@@ -614,6 +632,13 @@ def main() -> None:
                         "target": cloud_save_cdn_report.target,
                         "violations": cloud_save_cdn_report.violations,
                         "metrics": cloud_save_cdn_report.metrics,
+                    },
+                    "gpu_shader_texture_gate": {
+                        "passed": gpu_shader_texture_report.passed,
+                        "score": gpu_shader_texture_report.score,
+                        "target": gpu_shader_texture_report.target,
+                        "violations": gpu_shader_texture_report.violations,
+                        "metrics": gpu_shader_texture_report.metrics,
                     },
                 },
                 ensure_ascii=False,

@@ -7,7 +7,7 @@ quality gate, vertical video caption safe-zone inspector & six-segment storyboar
 prompt standardizer for AI Short-Drama & Game Studios.
 """
 
-__version__ = "0.22.0"
+__version__ = "0.23.0"
 
 from .gates import (
     validate_episode_outline,
@@ -33,6 +33,7 @@ from .gates import (
     inspect_matrix_publish_manifest,
     inspect_monetization_iap_compliance,
     inspect_cloud_save_cdn_manifest,
+    inspect_gpu_shader_texture_pack,
     OutlineGateReport,
     BudgetEstimate,
     WebGameHealthReport,
@@ -55,6 +56,7 @@ from .gates import (
     MatrixPublishManifestReport,
     MonetizationIapReport,
     CloudSaveCdnReport,
+    GpuShaderTextureReport,
     STUDIO_BGM_LIBRARY_PRESETS,
     PLATFORM_SAFE_MARGINS,
     COVER_RATIO_PRESETS,
@@ -74,6 +76,7 @@ from .gates import (
     MATRIX_PUBLISH_LIMITS,
     MONETIZATION_IAP_LIMITS,
     CLOUD_SAVE_CDN_LIMITS,
+    GPU_SHADER_TEXTURE_LIMITS,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -107,6 +110,7 @@ __all__ = [
     "inspect_matrix_publish_manifest",
     "inspect_monetization_iap_compliance",
     "inspect_cloud_save_cdn_manifest",
+    "inspect_gpu_shader_texture_pack",
     "standardize_shot_prompt",
     "OutlineGateReport",
     "BudgetEstimate",
@@ -130,6 +134,7 @@ __all__ = [
     "MatrixPublishManifestReport",
     "MonetizationIapReport",
     "CloudSaveCdnReport",
+    "GpuShaderTextureReport",
     "STUDIO_BGM_LIBRARY_PRESETS",
     "PLATFORM_SAFE_MARGINS",
     "COVER_RATIO_PRESETS",
@@ -149,6 +154,7 @@ __all__ = [
     "MATRIX_PUBLISH_LIMITS",
     "MONETIZATION_IAP_LIMITS",
     "CLOUD_SAVE_CDN_LIMITS",
+    "GPU_SHADER_TEXTURE_LIMITS",
     "DEFAULT_NEGATIVE_PROMPT",
     "MODEL_STYLE_PRESETS",
 ]
