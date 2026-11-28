@@ -3321,6 +3321,154 @@ def inspect_gpu_shader_texture_pack(
     )
 
 
+@dataclass
+class AccessibilityInputReport:
+    passed: bool
+    score: int
+    target: str
+    violations: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+
+ACCESSIBILITY_INPUT_LIMITS: Dict[str, Any] = {
+    "targets": {
+        "wechat_minigame": {
+            "requires_touch_ergonomics": True,
+            "requires_safe_area_inset": True,
+            "requires_controller_nav": False,
+        },
+        "bilibili_toy": {
+            "requires_touch_ergonomics": True,
+            "requires_safe_area_inset": True,
+            "requires_controller_nav": False,
+        },
+        "ios_app_store": {
+            "requires_touch_ergonomics": True,
+            "requires_safe_area_inset": True,
+            "requires_controller_nav": False,
+        },
+        "steam_deck": {
+            "requires_touch_ergonomics": True,
+            "requires_safe_area_inset": False,
+            "requires_controller_nav": True,
+        },
+        "steam_pc": {
+            "requires_touch_ergonomics": False,
+            "requires_safe_area_inset": False,
+            "requires_controller_nav": True,
+        },
+    },
+    "max_safe_flash_hz": 3.0,
+    "min_touch_target_px": 44,
+    "min_touch_spacing_px": 8,
+    "min_caption_contrast_ratio": 4.5,
+}
+
+
+def inspect_accessibility_input_ergonomics(
+    manifest: Dict[str, Any],
+    target: str = "wechat_minigame",
+) -> AccessibilityInputReport:
+    """
+    Deterministic pre-submission accessibility (WCAG 2.3.1 photosensitive flash, caption contrast &
+    colorblind indicators) & cross-device input ergonomics (44px touch hitboxes, notch safe-area insets
+    & Steam Deck / PC gamepad focus navigation) gate:
+    1. Target profile validation (`UNSUPPORTED_ACCESSIBILITY_TARGET`).
+    2. Photosensitive epilepsy flash frequency ceiling (WCAG 2.3.1 / ITU-R BT.1702 `<= 3.0 Hz`) &
+       mandatory seizure warning splash audit (`PHOTOSENSITIVE_FLASH_HAZARD`).
+    3. Mobile touch hitbox (`>= 44px`), spacing (`>= 8px`) & notch/home-indicator `safe-area-inset`
+       avoidance audit (`TOUCH_HITBOX_OR_SAFE_INSET_VIOLATION`).
+    4. Steam Deck Verified / PC full gamepad focus navigation, key remapping & controller-disconnect
+       auto-pause audit (`CONTROLLER_NAVIGATION_OR_REMAP_MISSING`).
+    5. WCAG AA caption contrast ratio (`>= 4.5:1`) & non-color-only QTE/faction iconography audit
+       (`CAPTION_CONTRAST_OR_COLORBLIND_TRAP`).
+    6. Unlocked-node replay fast-forward/skip & closed-caption `[SFX]` visual audio-cue accessibility
+       audit (`SKIP_REPLAY_OR_AUDIO_CUE_ACCESSIBILITY_GAP`).
+    """
+    violations: List[str] = []
+    targets: Dict[str, Dict[str, Any]] = ACCESSIBILITY_INPUT_LIMITS["targets"]
+    target_key = str(target or "wechat_minigame").strip().lower()
+    if target_key not in targets:
+        violations.append(
+            f"UNSUPPORTED_ACCESSIBILITY_TARGET: Target '{target_key}' not in {sorted(targets.keys())}; falling back to 'wechat_minigame'."
+        )
+        target_key = "wechat_minigame"
+
+    profile = targets[target_key]
+    req_touch = bool(profile["requires_touch_ergonomics"])
+    req_safe_inset = bool(profile["requires_safe_area_inset"])
+    req_gamepad = bool(profile["requires_controller_nav"])
+
+    max_flash_hz = float(ACCESSIBILITY_INPUT_LIMITS["max_safe_flash_hz"])
+    peak_flash_hz = float(manifest.get("peak_luminance_flash_hz") or 0.0)
+    has_seizure_warning = bool(manifest.get("photosensitive_warning_splash", False))
+    flash_reducer_option = bool(manifest.get("reduce_flashing_vfx_toggle", False))
+    if peak_flash_hz > max_flash_hz and not (has_seizure_warning and flash_reducer_option):
+        violations.append(
+            f"PHOTOSENSITIVE_FLASH_HAZARD: peak_luminance_flash_hz={peak_flash_hz} exceeds {max_flash_hz}Hz WCAG 2.3.1 threshold without photosensitive_warning_splash + reduce_flashing_vfx_toggle."
+        )
+
+    min_hitbox_limit = int(ACCESSIBILITY_INPUT_LIMITS["min_touch_target_px"])
+    min_spacing_limit = int(ACCESSIBILITY_INPUT_LIMITS["min_touch_spacing_px"])
+    min_hitbox = int(manifest.get("min_touch_target_px") or 0)
+    min_spacing = int(manifest.get("min_touch_spacing_px") or 0)
+    safe_inset_ok = bool(manifest.get("safe_area_inset_respected", False))
+    if req_touch:
+        touch_issues: List[str] = []
+        if min_hitbox < min_hitbox_limit:
+            touch_issues.append(f"min_touch_target_px={min_hitbox}<{min_hitbox_limit}")
+        if min_spacing < min_spacing_limit:
+            touch_issues.append(f"min_touch_spacing_px={min_spacing}<{min_spacing_limit}")
+        if req_safe_inset and not safe_inset_ok:
+            touch_issues.append("safe_area_inset_respected=False")
+        if touch_issues:
+            violations.append(
+                f"TOUCH_HITBOX_OR_SAFE_INSET_VIOLATION: Mobile touch ergonomics failed check(s): {touch_issues}."
+            )
+
+    full_gamepad_nav = bool(manifest.get("full_controller_focus_nav", False))
+    key_remap_ok = bool(manifest.get("key_remapping_supported", False))
+    pause_disconnect_ok = bool(manifest.get("pause_on_controller_disconnect", False))
+    if req_gamepad and not (full_gamepad_nav and key_remap_ok and pause_disconnect_ok):
+        violations.append(
+            f"CONTROLLER_NAVIGATION_OR_REMAP_MISSING: Target '{target_key}' requires full_controller_focus_nav={full_gamepad_nav}, key_remapping_supported={key_remap_ok}, pause_on_controller_disconnect={pause_disconnect_ok}."
+        )
+
+    min_contrast_limit = float(ACCESSIBILITY_INPUT_LIMITS["min_caption_contrast_ratio"])
+    caption_contrast = float(manifest.get("caption_contrast_ratio") or 0.0)
+    color_only_qte = bool(manifest.get("color_only_qte_prompts", False))
+    if caption_contrast < min_contrast_limit or color_only_qte:
+        violations.append(
+            f"CAPTION_CONTRAST_OR_COLORBLIND_TRAP: caption_contrast_ratio={caption_contrast} (min {min_contrast_limit}) or color_only_qte_prompts={color_only_qte}."
+        )
+
+    has_branching = bool(manifest.get("has_branching_replay", False))
+    skip_unlocked = bool(manifest.get("allow_skip_unlocked_nodes", False))
+    has_audio_puzzles = bool(manifest.get("has_audio_critical_cues", False))
+    visual_sfx_cues = bool(manifest.get("visual_sfx_captions_enabled", False))
+    if (has_branching and not skip_unlocked) or (has_audio_puzzles and not visual_sfx_cues):
+        violations.append(
+            f"SKIP_REPLAY_OR_AUDIO_CUE_ACCESSIBILITY_GAP: allow_skip_unlocked_nodes={skip_unlocked} (branching={has_branching}), visual_sfx_captions_enabled={visual_sfx_cues} (audio_cues={has_audio_puzzles})."
+        )
+
+    score = max(0, 100 - len(violations) * 20)
+    return AccessibilityInputReport(
+        passed=len(violations) == 0,
+        score=score,
+        target=target_key,
+        violations=violations,
+        metrics={
+            "peak_luminance_flash_hz": round(peak_flash_hz, 2),
+            "max_safe_flash_hz_limit": max_flash_hz,
+            "min_touch_target_px": min_hitbox,
+            "min_touch_spacing_px": min_spacing,
+            "caption_contrast_ratio": round(caption_contrast, 2),
+            "requires_touch_ergonomics": req_touch,
+            "requires_controller_nav": req_gamepad,
+        },
+    )
+
+
 
 
 

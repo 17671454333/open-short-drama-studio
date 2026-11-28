@@ -26,6 +26,7 @@ from .gates import (
     inspect_monetization_iap_compliance,
     inspect_cloud_save_cdn_manifest,
     inspect_gpu_shader_texture_pack,
+    inspect_accessibility_input_ergonomics,
 )
 from .storyboard_prompt import (
     standardize_shot_prompt,
@@ -488,6 +489,23 @@ def main() -> None:
             },
             target="wechat_minigame",
         )
+        accessibility_input_report = inspect_accessibility_input_ergonomics(
+            {
+                "peak_luminance_flash_hz": 2.4,
+                "photosensitive_warning_splash": True,
+                "reduce_flashing_vfx_toggle": True,
+                "min_touch_target_px": 48,
+                "min_touch_spacing_px": 12,
+                "safe_area_inset_respected": True,
+                "caption_contrast_ratio": 7.2,
+                "color_only_qte_prompts": False,
+                "has_branching_replay": True,
+                "allow_skip_unlocked_nodes": True,
+                "has_audio_critical_cues": True,
+                "visual_sfx_captions_enabled": True,
+            },
+            target="wechat_minigame",
+        )
 
         print(
             json.dumps(
@@ -639,6 +657,13 @@ def main() -> None:
                         "target": gpu_shader_texture_report.target,
                         "violations": gpu_shader_texture_report.violations,
                         "metrics": gpu_shader_texture_report.metrics,
+                    },
+                    "accessibility_input_gate": {
+                        "passed": accessibility_input_report.passed,
+                        "score": accessibility_input_report.score,
+                        "target": accessibility_input_report.target,
+                        "violations": accessibility_input_report.violations,
+                        "metrics": accessibility_input_report.metrics,
                     },
                 },
                 ensure_ascii=False,

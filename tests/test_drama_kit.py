@@ -24,6 +24,7 @@ from drama_kit import (
     inspect_monetization_iap_compliance,
     inspect_cloud_save_cdn_manifest,
     inspect_gpu_shader_texture_pack,
+    inspect_accessibility_input_ergonomics,
     standardize_shot_prompt,
     STUDIO_BGM_LIBRARY_PRESETS,
     DEFAULT_NEGATIVE_PROMPT,
@@ -1531,6 +1532,76 @@ class TestOpenShortDramaStudio(unittest.TestCase):
         self.assertTrue(any("CONTEXT_LOSS_OR_VISIBILITY_LIFECYCLE_MISSING" in v for v in rep_bad.violations))
         self.assertTrue(any("THERMAL_FPS_OR_DECODER_FALLBACK_RISK" in v for v in rep_bad.violations))
         self.assertTrue(any("RAW_DCC_SOURCE_OR_DEBUG_SHADER_LEAK" in v for v in rep_bad.violations))
+
+    def test_inspect_accessibility_input_ergonomics_passes_clean_wechat_and_steam_deck(self):
+        rep_wx = inspect_accessibility_input_ergonomics(
+            {
+                "peak_luminance_flash_hz": 2.2,
+                "min_touch_target_px": 48,
+                "min_touch_spacing_px": 10,
+                "safe_area_inset_respected": True,
+                "caption_contrast_ratio": 7.0,
+                "color_only_qte_prompts": False,
+                "has_branching_replay": True,
+                "allow_skip_unlocked_nodes": True,
+                "has_audio_critical_cues": True,
+                "visual_sfx_captions_enabled": True,
+            },
+            target="wechat_minigame",
+        )
+        self.assertTrue(rep_wx.passed)
+        self.assertEqual(rep_wx.score, 100)
+        self.assertEqual(rep_wx.violations, [])
+
+        rep_deck = inspect_accessibility_input_ergonomics(
+            {
+                "peak_luminance_flash_hz": 5.5,
+                "photosensitive_warning_splash": True,
+                "reduce_flashing_vfx_toggle": True,
+                "min_touch_target_px": 46,
+                "min_touch_spacing_px": 10,
+                "full_controller_focus_nav": True,
+                "key_remapping_supported": True,
+                "pause_on_controller_disconnect": True,
+                "caption_contrast_ratio": 6.5,
+                "color_only_qte_prompts": False,
+                "has_branching_replay": True,
+                "allow_skip_unlocked_nodes": True,
+                "has_audio_critical_cues": False,
+            },
+            target="steam_deck",
+        )
+        self.assertTrue(rep_deck.passed)
+        self.assertEqual(rep_deck.score, 100)
+
+    def test_inspect_accessibility_input_ergonomics_catches_flash_touch_gamepad_contrast_and_skip_traps(self):
+        rep_bad = inspect_accessibility_input_ergonomics(
+            {
+                "peak_luminance_flash_hz": 8.0,
+                "photosensitive_warning_splash": False,
+                "reduce_flashing_vfx_toggle": False,
+                "min_touch_target_px": 28,
+                "min_touch_spacing_px": 2,
+                "safe_area_inset_respected": False,
+                "full_controller_focus_nav": False,
+                "key_remapping_supported": False,
+                "pause_on_controller_disconnect": False,
+                "caption_contrast_ratio": 2.4,
+                "color_only_qte_prompts": True,
+                "has_branching_replay": True,
+                "allow_skip_unlocked_nodes": False,
+                "has_audio_critical_cues": True,
+                "visual_sfx_captions_enabled": False,
+            },
+            target="steam_deck",
+        )
+        self.assertFalse(rep_bad.passed)
+        self.assertEqual(rep_bad.score, 0)
+        self.assertTrue(any("PHOTOSENSITIVE_FLASH_HAZARD" in v for v in rep_bad.violations))
+        self.assertTrue(any("TOUCH_HITBOX_OR_SAFE_INSET_VIOLATION" in v for v in rep_bad.violations))
+        self.assertTrue(any("CONTROLLER_NAVIGATION_OR_REMAP_MISSING" in v for v in rep_bad.violations))
+        self.assertTrue(any("CAPTION_CONTRAST_OR_COLORBLIND_TRAP" in v for v in rep_bad.violations))
+        self.assertTrue(any("SKIP_REPLAY_OR_AUDIO_CUE_ACCESSIBILITY_GAP" in v for v in rep_bad.violations))
 
 
 if __name__ == "__main__":
